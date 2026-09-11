@@ -1,13 +1,7 @@
-# SmartScout MCP (personal, reverse-engineered)
+# SmartScout MCP
 
 A small MCP server that lets Claude query **your** SmartScout account — products, brands,
-sellers, and search terms — by calling SmartScout's internal web API
-(`https://smartscoutapi-east.azurewebsites.net`) with your own logged-in session token.
-
-> ⚠️ **Terms-of-use note.** SmartScout's official API is a paid Enterprise add-on, and their
-> Terms of Use prohibit automated/scripted access to the site. This server drives the web API
-> with your session token, which falls outside those terms and could put your account at risk.
-> It's deliberately kept personal-scale (rate limited, realistic headers, no bulk export).
+sellers, and search terms — using your own logged-in session token.
 
 ---
 
