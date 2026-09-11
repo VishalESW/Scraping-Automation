@@ -122,24 +122,9 @@ export function fetchBrandSearchTerms(
   );
 }
 
-async function downloadXlsx(url: string, body: unknown, fallbackName: string): Promise<void> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new ApiFetchError(
-      err?.error || `Export failed (${res.status})`,
-      res.status,
-      Boolean(err?.tokenExpired) || res.status === 401 || res.status === 403,
-    );
-  }
-  const blob = await res.blob();
-  const cd = res.headers.get("Content-Disposition") || "";
-  const m = cd.match(/filename="?([^"]+)"?/);
-  const name = m?.[1] || fallbackName;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function saveBlob(blob: Blob, name: string): void {
   const href = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = href;
@@ -150,12 +135,58 @@ async function downloadXlsx(url: string, body: unknown, fallbackName: string): P
   URL.revokeObjectURL(href);
 }
 
+// Background-job export: start → poll status (short requests, proxy-safe) →
+// download the finished file. Avoids long single requests that hit the
+// Cloudflare/proxy ~100s timeout (HTTP 524).
+async function runExportJob(
+  type: "seller-map" | "subcategory" | "brand",
+  payload: unknown,
+  fallbackName: string,
+): Promise<void> {
+  const startRes = await fetch("/api/export/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, payload }),
+  });
+  const started = await handle<{ id: string }>(startRes);
+  const id = started.id;
+
+  const POLL_MS = 2500;
+  const MAX_MS = 30 * 60 * 1000;
+  let waited = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    await sleep(POLL_MS);
+    waited += POLL_MS;
+    const st = await fetch(`/api/export/status?id=${encodeURIComponent(id)}`).then((r) => r.json());
+    if (st.status === "done") break;
+    if (st.status === "error" || st.status === "expired") {
+      throw new ApiFetchError(
+        st.error || "Export failed",
+        st.statusCode ?? 500,
+        Boolean(st.tokenExpired),
+      );
+    }
+    if (waited > MAX_MS) throw new ApiFetchError("Export timed out.", 504, false);
+  }
+
+  const res = await fetch(`/api/export/download?id=${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiFetchError(err?.error || `Download failed (${res.status})`, res.status, false);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  saveBlob(blob, m?.[1] || fallbackName);
+}
+
 export interface ExportSubcategoryInput extends SubcategoryBrandsInput {
   subcategoryPath?: string;
 }
 
 export function exportSubcategoryXlsx(input: ExportSubcategoryInput): Promise<void> {
-  return downloadXlsx("/api/export/subcategory", input, "subcategory_brands.xlsx");
+  return runExportJob("subcategory", input, "subcategory_brands.xlsx");
 }
 
 export interface ExportSellerMapInput extends SellerMapInput {
@@ -163,7 +194,7 @@ export interface ExportSellerMapInput extends SellerMapInput {
 }
 
 export function exportSellerMapXlsx(input: ExportSellerMapInput): Promise<void> {
-  return downloadXlsx("/api/export/seller-map", input, "sellers.xlsx");
+  return runExportJob("seller-map", input, "sellers.xlsx");
 }
 
 export interface BrandExportSections {
@@ -186,7 +217,7 @@ export interface ExportBrandInput {
 }
 
 export function exportBrandXlsx(input: ExportBrandInput): Promise<void> {
-  return downloadXlsx("/api/export/brand", input, "brand_report.xlsx");
+  return runExportJob("brand", input, "brand_report.xlsx");
 }
 
 export interface ResolvedBrand {
