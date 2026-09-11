@@ -15,11 +15,14 @@ export default function Home() {
   return (
     <AppProvider>
       <TokenBanner />
-      <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div>
-            <h1 className="text-xl font-bold">SmartScout Research</h1>
-            <p className="text-sm text-muted">Brands, products &amp; marketplace data from subcategories and the seller map.</p>
+      <header className="app-header sticky top-0 z-30 border-b border-line">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 pt-5">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 place-items-center rounded-md bg-brand text-[15px] font-bold text-white shadow-xs">S</span>
+            <div>
+              <h1 className="text-lg font-semibold leading-tight">SmartScout Research</h1>
+              <p className="text-xs text-muted">Brands, products &amp; marketplace data — subcategories &amp; seller map.</p>
+            </div>
           </div>
           <MarketplaceSelect />
         </div>
@@ -33,7 +36,7 @@ export default function Home() {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-6">
+      <main className="mx-auto max-w-7xl px-6 py-8">
         {view === "subcategory" ? <SubcategoryView /> : <SellerMapView />}
       </main>
     </AppProvider>
@@ -44,8 +47,10 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
-        active ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink"
+      className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+        active
+          ? "border-brand text-brand"
+          : "border-transparent text-muted hover:border-linestrong hover:text-ink"
       }`}
     >
       {children}

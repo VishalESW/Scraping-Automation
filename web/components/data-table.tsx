@@ -82,7 +82,7 @@ export function DataTable<T>({
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
-        <thead className="border-b border-line bg-slate-50">
+        <thead>
           <tr>
             {columns.map((c) => (
               <th
@@ -107,7 +107,7 @@ export function DataTable<T>({
             sortedRows.map((row, i) => (
               <tr
                 key={getRowKey(row, i)}
-                className={`border-b border-line ${onRowClick ? "cursor-pointer hover:bg-indigo-50" : ""}`}
+                className={`border-b border-line transition-colors ${onRowClick ? "cursor-pointer hover:bg-accentweak" : ""}`}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((c) => (

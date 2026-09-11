@@ -41,8 +41,8 @@ export function BrandDetailDrawer({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative z-50 flex h-full w-full max-w-4xl flex-col bg-white shadow-xl">
+      <div className="drawer-backdrop absolute inset-0" onClick={onClose} />
+      <div className="drawer-panel relative z-50 flex h-full w-full max-w-4xl flex-col">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <div>
             <div className="text-xs text-muted">Brand #{brandId}</div>
