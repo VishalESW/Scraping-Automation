@@ -1,0 +1,32 @@
+{
+  "name": "smartscout-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal MCP server that wraps SmartScout's internal web API using your own session token.",
+  "bin": {
+    "smartscout-mcp": "dist/server.js"
+  },
+  "exports": {
+    "./client": "./src/client.ts",
+    "./config": "./src/config.ts",
+    "./map": "./src/map.ts",
+    "./util": "./src/tools/util.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/server.js",
+    "smoke": "node dist/smoke.js",
+    "inspector": "npx @modelcontextprotocol/inspector node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

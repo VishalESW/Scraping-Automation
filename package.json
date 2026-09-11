@@ -1,0 +1,8 @@
+{
+  "name": "3xperimental",
+  "private": true,
+  "workspaces": [
+    "smartscout-mcp",
+    "web"
+  ]
+}
