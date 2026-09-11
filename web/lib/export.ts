@@ -180,7 +180,20 @@ export interface SellerMapExportInput {
 
 const SELLER_HEADERS = [
   "Seller", "Est. Monthly Sales", "Seller Type", "# Brands", "Latitude", "Longitude", "Seller Id",
+  "Amazon Seller Id", "Seller Page (Amazon)",
 ];
+
+// Amazon storefront domain per marketplace (for the /sp?seller= contact page).
+const AMAZON_TLD: Record<string, string> = {
+  US: "com", UK: "co.uk", DE: "de", CA: "ca", MX: "com.mx", FR: "fr",
+  IT: "it", ES: "es", AU: "com.au", JP: "co.jp", IN: "in",
+};
+
+function amazonSellerUrl(marketplace: string, amazonSellerId: string | null): string | null {
+  if (!amazonSellerId) return null;
+  const tld = AMAZON_TLD[marketplace] ?? "com";
+  return `https://www.amazon.${tld}/sp?seller=${amazonSellerId}`;
+}
 const SELLER_BRAND_HEADERS = [
   "Seller", "Brand", "Brand Id", "Monthly Revenue", "Offers", "Brand Coverage %", "MoM Coverage Δ",
 ];
@@ -203,11 +216,25 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
   if (input.detailNote) ss.addRow([input.detailNote]);
   ss.addRow([]);
   styleHeaderRow(ss.addRow(SELLER_HEADERS));
+  const linkCol = SELLER_HEADERS.length; // last column = "Seller Page (Amazon)"
   for (const blk of input.sellers) {
     const s = blk.seller;
-    ss.addRow([s.name, s.estimateSales, s.sellerTypeId, blk.brands.length, s.latitude, s.longitude, s.sellerId]);
+    // amazonSellerId is the same across a seller's brand rows; take the first available.
+    const amazonSellerId =
+      blk.brands.find((x) => x.coverage.amazonSellerId)?.coverage.amazonSellerId ?? null;
+    const url = amazonSellerUrl(input.marketplace, amazonSellerId);
+    const row = ss.addRow([
+      s.name, s.estimateSales, s.sellerTypeId, blk.brands.length, s.latitude, s.longitude,
+      s.sellerId, amazonSellerId, url ? { text: url, hyperlink: url } : null,
+    ]);
+    if (url) {
+      const cell = row.getCell(linkCol);
+      cell.font = { color: { argb: "FF0563C1" }, underline: true };
+    }
   }
   sizeColumns(ss, SELLER_HEADERS.length);
+  ss.getColumn(SELLER_HEADERS.length - 1).width = 18; // Amazon Seller Id
+  ss.getColumn(SELLER_HEADERS.length).width = 52; // Seller Page (Amazon)
 
   // --- Brands sheet (one row per seller → brand) ---
   const bs = wb.addWorksheet("Brands");
