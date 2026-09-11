@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/dist
+**/out
+.git
+.gitignore
+**/.env
+**/.env.local
+**/*.log
+**/*.tsbuildinfo
+**/.DS_Store
+.hallmark
