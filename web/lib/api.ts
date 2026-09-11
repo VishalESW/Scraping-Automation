@@ -166,6 +166,25 @@ export function exportSellerMapXlsx(input: ExportSellerMapInput): Promise<void> 
   return downloadXlsx("/api/export/seller-map", input, "sellers.xlsx");
 }
 
+export interface BrandExportSections {
+  overview: boolean;
+  products: boolean;
+  sellers: boolean;
+  searchTerms: boolean;
+  marketplaces: boolean;
+}
+
+export interface ExportBrandInput {
+  brandId: number | string;
+  brandName: string;
+  marketplace?: Marketplace;
+  sections: BrandExportSections;
+}
+
+export function exportBrandXlsx(input: ExportBrandInput): Promise<void> {
+  return downloadXlsx("/api/export/brand", input, "brand_report.xlsx");
+}
+
 export function fetchSellerBrands(
   sellerId: number | string,
   marketplace?: Marketplace,

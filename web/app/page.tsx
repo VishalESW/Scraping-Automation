@@ -6,11 +6,12 @@ import { MarketplaceSelect } from "@/components/marketplace-select";
 import { TokenBanner } from "@/components/token-banner";
 import { SubcategoryView } from "@/components/subcategory-view";
 import { SellerMapView } from "@/components/seller-map-view";
+import { BrandView } from "@/components/brand-view";
 
-type View = "subcategory" | "seller-map";
+type View = "brand" | "subcategory" | "seller-map";
 
 export default function Home() {
-  const [view, setView] = useState<View>("subcategory");
+  const [view, setView] = useState<View>("brand");
 
   return (
     <AppProvider>
@@ -27,6 +28,9 @@ export default function Home() {
           <MarketplaceSelect />
         </div>
         <nav className="mx-auto flex max-w-7xl gap-1 px-6">
+          <TabButton active={view === "brand"} onClick={() => setView("brand")}>
+            Brand
+          </TabButton>
           <TabButton active={view === "subcategory"} onClick={() => setView("subcategory")}>
             Subcategory
           </TabButton>
@@ -37,7 +41,7 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-8">
-        {view === "subcategory" ? <SubcategoryView /> : <SellerMapView />}
+        {view === "brand" ? <BrandView /> : view === "subcategory" ? <SubcategoryView /> : <SellerMapView />}
       </main>
     </AppProvider>
   );
