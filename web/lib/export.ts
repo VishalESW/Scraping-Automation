@@ -330,15 +330,51 @@ const BRAND_MARKETPLACE_HEADERS = [
   "Avg. FBA Sellers", "Amazon In-Stock Rate", "Brand Score", "Rating",
 ];
 
-export interface BrandExportInput {
-  marketplace: string;
+const BRAND_DATA_HEADERS = [
+  "Brand", "Brand Id", "Brand Score", "Main Category", "Primary Subcategory",
+  "Est. Monthly Revenue", "Trailing 12 Months", "Avg. Price", "Avg. Volume", "Avg. FBA Sellers",
+  "Avg. Sellers", "Dominant Seller", "Country", "Sales %", "Est. Monthly Sales",
+  "Amazon In-Stock Rate", "Avg. Rating", "Total Reviews", "1 Month Growth", "12 Month Growth",
+  "Product Count", "Storefront", "Avg. In-Stock Rate 90", "Total Est. FBA Fees", "Storefront Url",
+];
+
+export interface BrandReportEntry {
+  brandId: number;
   brandName: string;
-  overview: RichSubcategoryBrand | null;
+  brand: RichSubcategoryBrand | null;
   products: Product[] | null;
   sellers: BrandSeller[] | null;
   searchTerms: BrandSearchTerm[] | null;
   marketplaces: BrandMarketplace[] | null;
+}
+
+export interface BrandExportSectionsFlags {
+  overview: boolean;
+  products: boolean;
+  sellers: boolean;
+  searchTerms: boolean;
+  marketplaces: boolean;
+}
+
+export interface BrandExportInput {
+  marketplace: string;
+  entries: BrandReportEntry[];
+  sections: BrandExportSectionsFlags;
   catName: (id: number | null) => string;
+}
+
+function brandDataRow(e: BrandReportEntry, catName: (id: number | null) => string): Cell[] {
+  const b = e.brand;
+  return [
+    b?.brandName ?? e.brandName, b?.brandId ?? e.brandId, b?.brandScore ?? null,
+    catName(b?.primaryCategoryId ?? null), b?.primarySubcategory ?? null, b?.monthlyRevenue ?? null,
+    b?.annualRevenue ?? null, b?.avgPrice ?? null, b?.avgVolume ?? null, b?.avgFbaSellers ?? null,
+    b?.avgSellers ?? null, b?.dominantSellerName ?? null, b?.dominantSellerCountry ?? null,
+    b?.dominantSellerBrandCoverage ?? null, b?.monthlyUnitsSold ?? null, b?.amazonIsr ?? null,
+    b?.reviewRating ?? null, b?.totalReviews ?? null, b?.momGrowth ?? null, b?.momGrowth12 ?? null,
+    b?.totalProducts ?? null, b?.hasStorefront ?? null, b?.avgInStockRate90Day ?? null,
+    b?.totalEstFbaFees30Day ?? null, b?.storefrontUrl ?? null,
+  ];
 }
 
 export async function buildBrandWorkbook(input: BrandExportInput): Promise<ArrayBuffer> {
@@ -346,93 +382,110 @@ export async function buildBrandWorkbook(input: BrandExportInput): Promise<Array
   wb.creator = "SmartScout Research";
   wb.created = new Date();
   const refreshed = new Date();
+  const { entries, sections, catName, marketplace } = input;
 
-  // --- Overview (key/value) ---
-  if (input.overview) {
-    const b = input.overview;
-    const os = wb.addWorksheet("Overview");
-    styleHeaderRow(os.addRow(["Field", "Value"]));
-    const rows: [string, Cell][] = [
-      ["Brand", b.brandName],
-      ["Brand Id", b.brandId],
-      ["Brand Score", b.brandScore],
-      ["Main Category", input.catName(b.primaryCategoryId)],
-      ["Primary Subcategory", b.primarySubcategory],
-      ["Est. Monthly Revenue", b.monthlyRevenue],
-      ["Trailing 12 Months", b.annualRevenue],
-      ["Avg. Price", b.avgPrice],
-      ["Avg. Sellers", b.avgSellers],
-      ["Avg. FBA Sellers", b.avgFbaSellers],
-      ["Dominant Seller", b.dominantSellerName],
-      ["Country", b.dominantSellerCountry],
-      ["Sales %", b.dominantSellerBrandCoverage],
-      ["Est. Monthly Sales", b.monthlyUnitsSold],
-      ["Amazon In-Stock Rate", b.amazonIsr],
-      ["Avg. Rating", b.reviewRating],
-      ["Total Reviews", b.totalReviews],
-      ["1 Month Growth", b.momGrowth],
-      ["12 Month Growth", b.momGrowth12],
-      ["Product Count", b.totalProducts],
-      ["Storefront", b.hasStorefront],
-      ["Avg. In-Stock Rate 90", b.avgInStockRate90Day],
-      ["Total Est. FBA Fees", b.totalEstFbaFees30Day],
-      ["Storefront Url", b.storefrontUrl],
-    ];
-    for (const [k, v] of rows) {
-      const r = os.addRow([k, v]);
-      r.getCell(1).font = { bold: true };
-    }
-    os.getColumn(1).width = 24;
-    os.getColumn(2).width = 60;
+  // --- Brands sheet: horizontal, one row per brand ---
+  if (sections.overview) {
+    const bs = wb.addWorksheet("Brands");
+    styleHeaderRow(bs.addRow(BRAND_DATA_HEADERS));
+    for (const e of entries) bs.addRow(brandDataRow(e, catName));
+    sizeColumns(bs, BRAND_DATA_HEADERS.length);
   }
 
-  // --- Products ---
-  if (input.products) {
+  // gap-separated per-brand blocks helper
+  const gap = (ws: ExcelJS.Worksheet, first: boolean) => {
+    if (!first) {
+      ws.addRow([]);
+      ws.addRow([]);
+    }
+  };
+
+  // --- Products (one sheet, block per brand, 2 blank rows between) ---
+  if (sections.products) {
     const ps = wb.addWorksheet("Products");
-    styleHeaderRow(ps.addRow(PRODUCT_HEADERS));
-    for (const p of input.products) ps.addRow(productRow(p, input.catName, refreshed));
+    let first = true;
+    for (const e of entries) {
+      if (!e.products) continue;
+      gap(ps, first);
+      first = false;
+      const t = ps.addRow([`${e.brandName} - All Products (SmartScout, ${marketplace})`]);
+      t.font = { bold: true, size: 12 };
+      ps.addRow([`${e.products.length} ASINs.`]);
+      ps.addRow([]);
+      styleHeaderRow(ps.addRow(PRODUCT_HEADERS));
+      for (const p of e.products) ps.addRow(productRow(p, catName, refreshed));
+    }
     sizeColumns(ps, PRODUCT_HEADERS.length);
   }
 
-  // --- Sellers (with Amazon seller-id + clickable seller page link) ---
-  if (input.sellers) {
+  // --- Sellers (block per brand; Amazon seller-id + clickable seller page link) ---
+  if (sections.sellers) {
     const ss = wb.addWorksheet("Sellers");
-    styleHeaderRow(ss.addRow(BRAND_SELLER_HEADERS));
-    for (const s of input.sellers) {
-      const url = amazonSellerUrl(input.marketplace, s.amazonSellerId);
-      const row = ss.addRow([
-        s.sellerName, s.amazonSellerId, url ? { text: url, hyperlink: url } : null,
-        s.numberOffers, s.monthlyRevenue, s.estimateBrandPercentage, s.moMCoverageChange,
-      ]);
-      if (url) row.getCell(3).font = { color: { argb: "FF0563C1" }, underline: true };
+    let first = true;
+    for (const e of entries) {
+      if (!e.sellers) continue;
+      gap(ss, first);
+      first = false;
+      const t = ss.addRow([`${e.brandName} - Sellers (SmartScout, ${marketplace})`]);
+      t.font = { bold: true, size: 12 };
+      ss.addRow([`${e.sellers.length} sellers.`]);
+      ss.addRow([]);
+      styleHeaderRow(ss.addRow(BRAND_SELLER_HEADERS));
+      for (const s of e.sellers) {
+        const url = amazonSellerUrl(marketplace, s.amazonSellerId);
+        const row = ss.addRow([
+          s.sellerName, s.amazonSellerId, url ? { text: url, hyperlink: url } : null,
+          s.numberOffers, s.monthlyRevenue, s.estimateBrandPercentage, s.moMCoverageChange,
+        ]);
+        if (url) row.getCell(3).font = { color: { argb: "FF0563C1" }, underline: true };
+      }
     }
     sizeColumns(ss, BRAND_SELLER_HEADERS.length);
     ss.getColumn(2).width = 18;
     ss.getColumn(3).width = 52;
   }
 
-  // --- Search terms ---
-  if (input.searchTerms) {
+  // --- Search terms (block per brand) ---
+  if (sections.searchTerms) {
     const ts = wb.addWorksheet("Search Terms");
-    styleHeaderRow(ts.addRow(SEARCH_TERM_HEADERS));
-    for (const t of input.searchTerms) {
-      ts.addRow([
-        t.searchTerm, t.estimateSearches, t.totalKeywordSales, t.opportunityScore,
-        t.searchResultsCount, t.estimatedCpc, t.topSpotWinRate, t.totalAdSpend, t.sponsoredProducts,
-      ]);
+    let first = true;
+    for (const e of entries) {
+      if (!e.searchTerms) continue;
+      gap(ts, first);
+      first = false;
+      const t = ts.addRow([`${e.brandName} - Search Terms (SmartScout, ${marketplace})`]);
+      t.font = { bold: true, size: 12 };
+      ts.addRow([`${e.searchTerms.length} search terms.`]);
+      ts.addRow([]);
+      styleHeaderRow(ts.addRow(SEARCH_TERM_HEADERS));
+      for (const st of e.searchTerms) {
+        ts.addRow([
+          st.searchTerm, st.estimateSearches, st.totalKeywordSales, st.opportunityScore,
+          st.searchResultsCount, st.estimatedCpc, st.topSpotWinRate, st.totalAdSpend, st.sponsoredProducts,
+        ]);
+      }
     }
     sizeColumns(ts, SEARCH_TERM_HEADERS.length);
   }
 
-  // --- Marketplaces ---
-  if (input.marketplaces) {
+  // --- Marketplaces (block per brand) ---
+  if (sections.marketplaces) {
     const ms = wb.addWorksheet("Marketplaces");
-    styleHeaderRow(ms.addRow(BRAND_MARKETPLACE_HEADERS));
-    for (const m of input.marketplaces) {
-      ms.addRow([
-        m.name, m.monthlyRevenue, m.monthlyUnitsSold, m.totalProducts, m.numberOos, m.avgSellers,
-        m.avgFbaSellers, m.amazonIsr, m.brandScore, m.reviewRating,
-      ]);
+    let first = true;
+    for (const e of entries) {
+      if (!e.marketplaces) continue;
+      gap(ms, first);
+      first = false;
+      const t = ms.addRow([`${e.brandName} - Marketplaces (SmartScout, ${marketplace})`]);
+      t.font = { bold: true, size: 12 };
+      ms.addRow([]);
+      styleHeaderRow(ms.addRow(BRAND_MARKETPLACE_HEADERS));
+      for (const m of e.marketplaces) {
+        ms.addRow([
+          m.name, m.monthlyRevenue, m.monthlyUnitsSold, m.totalProducts, m.numberOos, m.avgSellers,
+          m.avgFbaSellers, m.amazonIsr, m.brandScore, m.reviewRating,
+        ]);
+      }
     }
     sizeColumns(ms, BRAND_MARKETPLACE_HEADERS.length);
   }

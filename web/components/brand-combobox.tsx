@@ -15,9 +15,13 @@ export interface BrandSelection {
 export function BrandCombobox({
   value,
   onChange,
+  onAdd,
 }: {
-  value: BrandSelection | null;
-  onChange: (v: BrandSelection | null) => void;
+  value?: BrandSelection | null;
+  onChange?: (v: BrandSelection | null) => void;
+  /** When provided, the combobox acts as an "add to list" input: it calls onAdd
+   *  and clears itself after each pick instead of holding a single value. */
+  onAdd?: (v: BrandSelection) => void;
 }) {
   const { marketplace, reportError } = useApp();
   const [text, setText] = useState("");
@@ -32,7 +36,7 @@ export function BrandCombobox({
 
   useEffect(() => {
     setText("");
-    onChange(null);
+    onChange?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marketplace]);
 
@@ -58,7 +62,13 @@ export function BrandCombobox({
   const results: Brand[] = q.data?.brands ?? [];
 
   function select(brand: Brand) {
-    onChange({ brandId: brand.brandId, name: brand.name });
+    if (onAdd) {
+      onAdd({ brandId: brand.brandId, name: brand.name });
+      setText("");
+      setOpen(false);
+      return;
+    }
+    onChange?.({ brandId: brand.brandId, name: brand.name });
     setText(brand.name);
     setOpen(false);
   }
@@ -73,12 +83,12 @@ export function BrandCombobox({
           onChange={(e) => {
             setText(e.target.value);
             setOpen(true);
-            if (value) onChange(null);
+            if (value) onChange?.(null);
           }}
           onFocus={() => setOpen(true)}
         />
         {value && (
-          <button type="button" className="btn-ghost shrink-0" onClick={() => { onChange(null); setText(""); }} title="Clear">
+          <button type="button" className="btn-ghost shrink-0" onClick={() => { onChange?.(null); setText(""); }} title="Clear">
             ✕
           </button>
         )}

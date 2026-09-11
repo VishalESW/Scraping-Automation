@@ -174,15 +174,34 @@ export interface BrandExportSections {
   marketplaces: boolean;
 }
 
-export interface ExportBrandInput {
+export interface BrandRef {
   brandId: number | string;
   brandName: string;
+}
+
+export interface ExportBrandInput {
+  brands: BrandRef[];
   marketplace?: Marketplace;
   sections: BrandExportSections;
 }
 
 export function exportBrandXlsx(input: ExportBrandInput): Promise<void> {
   return downloadXlsx("/api/export/brand", input, "brand_report.xlsx");
+}
+
+export interface ResolvedBrand {
+  query: string;
+  found: boolean;
+  brandId?: number;
+  brandName?: string;
+}
+
+export function resolveBrands(names: string[], marketplace?: Marketplace): Promise<{ resolved: ResolvedBrand[] }> {
+  return fetch("/api/brands/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ names, marketplace }),
+  }).then((r) => handle<{ resolved: ResolvedBrand[] }>(r));
 }
 
 export function fetchSellerBrands(
