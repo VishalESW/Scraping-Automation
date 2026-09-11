@@ -286,11 +286,18 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
   }
   sizeColumns(ps, PRODUCT_HEADERS.length);
 
-  // --- Marketplaces sheet (one row per seller → brand → marketplace) ---
+  // --- Marketplaces sheet (per seller → brand, 2 blank rows between brand blocks) ---
   const ms = wb.addWorksheet("Marketplaces");
   styleHeaderRow(ms.addRow(SELLER_MARKETPLACE_HEADERS));
+  let firstMkt = true;
   for (const blk of input.sellers) {
     for (const b of blk.brands) {
+      if (b.marketplaces.length === 0) continue;
+      if (!firstMkt) {
+        ms.addRow([]);
+        ms.addRow([]); // two-row gap between brands
+      }
+      firstMkt = false;
       for (const m of b.marketplaces) {
         ms.addRow([
           blk.seller.name, b.coverage.brandName, m.name, m.monthlyRevenue, m.monthlyUnitsSold,
