@@ -165,6 +165,7 @@ export interface SellerBlock {
   seller: MapSeller;
   brands: Array<{
     coverage: SellerBrand;
+    brand: RichSubcategoryBrand | null;
     products: Product[];
     marketplaces: BrandMarketplace[];
   }>;
@@ -195,7 +196,12 @@ function amazonSellerUrl(marketplace: string, amazonSellerId: string | null): st
   return `https://www.amazon.${tld}/sp?seller=${amazonSellerId}`;
 }
 const SELLER_BRAND_HEADERS = [
-  "Seller", "Brand", "Brand Id", "Monthly Revenue", "Offers", "Brand Coverage %", "MoM Coverage Δ",
+  "Seller", "Brand", "Brand Id", "Brand Score", "Main Category", "Primary Subcategory",
+  "Est. Monthly Revenue", "Trailing 12 Months", "Avg. Price", "Avg. Volume", "Avg. FBA Sellers",
+  "Avg. Sellers", "Dominant Seller", "Country", "Sales %", "Est. Monthly Sales",
+  "Amazon In-Stock Rate", "Avg. Rating", "Total Reviews", "1 Month Growth", "12 Month Growth",
+  "Product Count", "Storefront", "Avg. In-Stock Rate 90", "Total Est. FBA Fees", "Storefront Url",
+  "Offers (this seller)", "Brand Coverage % (this seller)", "MoM Coverage Δ (this seller)",
 ];
 const SELLER_MARKETPLACE_HEADERS = [
   "Seller", "Brand", "Marketplace", "Monthly Revenue", "Units/mo", "Products", "Out of Stock",
@@ -236,15 +242,23 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
   ss.getColumn(SELLER_HEADERS.length - 1).width = 18; // Amazon Seller Id
   ss.getColumn(SELLER_HEADERS.length).width = 52; // Seller Page (Amazon)
 
-  // --- Brands sheet (one row per seller → brand) ---
+  // --- Brands sheet (one row per seller → brand, with whole-catalog brand detail) ---
   const bs = wb.addWorksheet("Brands");
   styleHeaderRow(bs.addRow(SELLER_BRAND_HEADERS));
   for (const blk of input.sellers) {
-    for (const b of blk.brands) {
-      const c = b.coverage;
+    for (const x of blk.brands) {
+      const c = x.coverage;
+      const b = x.brand;
       bs.addRow([
-        blk.seller.name, c.brandName, c.brandId, c.monthlyRevenue, c.numberOffers,
-        c.estimateBrandPercentage, c.moMCoverageChange,
+        blk.seller.name, c.brandName, c.brandId,
+        b?.brandScore ?? null, input.catName(b?.primaryCategoryId ?? null), b?.primarySubcategory ?? null,
+        b?.monthlyRevenue ?? null, b?.annualRevenue ?? null, b?.avgPrice ?? null, b?.avgVolume ?? null,
+        b?.avgFbaSellers ?? null, b?.avgSellers ?? null, b?.dominantSellerName ?? null,
+        b?.dominantSellerCountry ?? null, b?.dominantSellerBrandCoverage ?? null,
+        b?.monthlyUnitsSold ?? null, b?.amazonIsr ?? null, b?.reviewRating ?? null, b?.totalReviews ?? null,
+        b?.momGrowth ?? null, b?.momGrowth12 ?? null, b?.totalProducts ?? null, b?.hasStorefront ?? null,
+        b?.avgInStockRate90Day ?? null, b?.totalEstFbaFees30Day ?? null, b?.storefrontUrl ?? null,
+        c.numberOffers, c.estimateBrandPercentage, c.moMCoverageChange,
       ]);
     }
   }

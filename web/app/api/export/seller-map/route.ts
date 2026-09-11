@@ -3,6 +3,8 @@ import {
   mapSellerMap,
   getSellerBrands,
   mapSellerBrands,
+  getBrand,
+  mapBrands,
   getBrandProducts,
   mapProducts,
   getBrandMarketplaces,
@@ -10,6 +12,7 @@ import {
   toApiError,
 } from "@/lib/smartscout";
 import { getCategories } from "@/lib/catalog";
+import { richFromBrand } from "@/lib/brand-rich";
 import { buildSellerMapWorkbook, type SellerBlock } from "@/lib/export";
 import { parseMarketplace, num } from "@/lib/respond";
 import type {
@@ -17,6 +20,8 @@ import type {
   SellerMapResponse,
   SellerBrand,
   SellerBrandsResponse,
+  RichSubcategoryBrand,
+  BrandsResponse,
   Product,
   BrandMarketplace,
   MarketplacesResponse,
@@ -74,10 +79,21 @@ export async function POST(req: Request): Promise<Response> {
       for (const coverage of brandRows) {
         if (brandBudget <= 0) {
           // keep the coverage row (cheap) but skip expensive detail beyond the budget
-          brands.push({ coverage, products: [], marketplaces: [] });
+          brands.push({ coverage, brand: null, products: [], marketplaces: [] });
           continue;
         }
         brandBudget -= 1;
+
+        // whole-catalog brand record (Brand sheet detail columns)
+        let brand: RichSubcategoryBrand | null = null;
+        try {
+          const br = mapBrands(await getBrand(coverage.brandName ?? "", marketplace)) as BrandsResponse;
+          const match = br.brands.find((x) => x.brandId === coverage.brandId) ?? br.brands[0];
+          brand = richFromBrand(match, coverage.brandId, coverage.brandName ?? "");
+        } catch {
+          brand = null;
+        }
+
         let products: Product[] = [];
         let marketplaces: BrandMarketplace[] = [];
         try {
@@ -101,7 +117,7 @@ export async function POST(req: Request): Promise<Response> {
         } catch {
           marketplaces = [];
         }
-        brands.push({ coverage, products, marketplaces });
+        brands.push({ coverage, brand, products, marketplaces });
       }
       blocks.push({ seller, brands });
     }
