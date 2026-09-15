@@ -5,12 +5,13 @@ import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import {
   fetchSubcategoryBrands,
   fetchSubcategoryExpand,
+  fetchBrandSellerSummaries,
   exportSubcategoryXlsx,
   exportSubcategoryBulkXlsx,
   type SubcategoryBrandsInput,
 } from "@/lib/api";
 import type { SortDir, SubcategoryBrand } from "@/lib/types";
-import { money, count, num1 } from "@/lib/format";
+import { money, count, num1, text } from "@/lib/format";
 import { useApp } from "./app-context";
 import { DataTable, type Column } from "./data-table";
 import { BrandDetailDrawer } from "./brand-detail-drawer";
@@ -47,6 +48,9 @@ export function SubcategoryView() {
   });
   const [query, setQuery] = useState<Query | null>(null);
   const [selected, setSelected] = useState<{ brandId: number; name: string } | null>(null);
+  // Sole-seller filter: keep only brands the owner sells itself (no Amazon/resellers).
+  const [soleOnly, setSoleOnly] = useState(false);
+  const [otherMaxPct, setOtherMaxPct] = useState("5");
 
   const isBulk = sub?.isParent === true;
 
@@ -79,6 +83,21 @@ export function SubcategoryView() {
   useEffect(() => {
     if (q.error) reportError(q.error);
   }, [q.error, reportError]);
+
+  // Per-brand seller summary for the current page (only when the sole-seller
+  // filter is on). One brandcoverage call per brand, rate-limited server-side.
+  const pageBrandIds = (q.data?.brands ?? []).map((b) => b.brandId);
+  const pageKey = pageBrandIds.join(",");
+  const summariesQ = useQuery({
+    queryKey: ["brand-seller-summaries", marketplace, pageKey, otherMaxPct],
+    enabled: !isBulk && soleOnly && pageBrandIds.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchBrandSellerSummaries(pageBrandIds, marketplace, n(otherMaxPct)),
+  });
+  useEffect(() => {
+    if (summariesQ.error) reportError(summariesQ.error);
+  }, [summariesQ.error, reportError]);
 
   // Branch expansion (how many subcategories a whole category/branch covers).
   const expandQ = useQuery({
@@ -143,6 +162,8 @@ export function SubcategoryView() {
     });
   }
 
+  const summaries = summariesQ.data?.summaries;
+
   const columns: Column<SubcategoryBrand>[] = [
     { key: "brandName", header: "Brand", sortKey: "brandName", render: (r) => <span className="font-medium">{r.brandName}</span> },
     { key: "revenue", header: "Monthly rev.", sortKey: "revenue", align: "right", render: (r) => money(r.revenue) },
@@ -154,8 +175,29 @@ export function SubcategoryView() {
     { key: "totalReviews", header: "Reviews", sortKey: "totalReviews", align: "right", render: (r) => count(r.totalReviews) },
     { key: "reviewRating", header: "Rating", sortKey: "reviewRating", align: "right", render: (r) => num1(r.reviewRating) },
   ];
+  if (soleOnly) {
+    columns.push({
+      key: "sellers",
+      header: "Seller (coverage)",
+      render: (r) => {
+        const s = summaries?.[r.brandId];
+        if (!s) return <span className="text-muted">{summariesQ.isFetching ? "…" : "—"}</span>;
+        return (
+          <div className="text-xs">
+            <span className="font-medium">{text(s.ownerName)}</span>
+            {s.ownerCoverage != null ? ` ${s.ownerCoverage.toFixed(1)}%` : ""}
+            <span className="text-muted"> · {s.sellerCount} seller{s.sellerCount === 1 ? "" : "s"}</span>
+            {s.amazonPresent && (
+              <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-700">Amazon</span>
+            )}
+          </div>
+        );
+      },
+    });
+  }
 
   const rows = q.data?.brands ?? [];
+  const displayRows = soleOnly && summaries ? rows.filter((r) => summaries[r.brandId]?.soleSeller) : rows;
   const total = q.data?.totalRowCount ?? null;
   const page = query?.page ?? 1;
   const hasMore = total !== null ? page * PAGE_SIZE < total : rows.length === PAGE_SIZE;
@@ -264,6 +306,30 @@ export function SubcategoryView() {
 
       {!isBulk && query && (
         <div className="card">
+          <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={soleOnly} onChange={(e) => setSoleOnly(e.target.checked)} />
+              Sole-seller only <span className="text-muted">(brand owner sells; no Amazon / resellers)</span>
+            </label>
+            {soleOnly && (
+              <label className="flex items-center gap-1 text-xs text-muted">
+                Other-seller max %
+                <input
+                  className="field w-16 py-0.5"
+                  inputMode="numeric"
+                  value={otherMaxPct}
+                  onChange={(e) => setOtherMaxPct(e.target.value)}
+                  title="A brand qualifies if only one seller is at/above this coverage %, and it isn't Amazon."
+                />
+              </label>
+            )}
+            {soleOnly && summaries && (
+              <span className="text-xs text-muted">
+                {displayRows.length} of {rows.length} sole-seller on this page
+              </span>
+            )}
+            {soleOnly && summariesQ.isFetching && <span className="text-xs text-muted">Checking sellers…</span>}
+          </div>
           <div className="flex items-center justify-between border-b border-line px-4 py-2 text-sm text-muted">
             <span>
               {total !== null ? `${count(total)} brands` : `${rows.length} brands`} · click a row for products, marketplaces, sellers &amp; keywords
@@ -295,13 +361,21 @@ export function SubcategoryView() {
             </span>
           </div>
           <DataTable
-            rows={rows}
+            rows={displayRows}
             columns={columns}
             getRowKey={(r) => r.brandId}
             onRowClick={(r) => setSelected({ brandId: r.brandId, name: r.brandName })}
             sort={{ by: query.sortBy, dir: query.sortDir }}
             onSortChange={(by, dir) => setQuery({ ...query, sortBy: by, sortDir: dir, page: 1 })}
-            emptyText={q.isFetching ? "Loading…" : "No brands for these filters."}
+            emptyText={
+              q.isFetching
+                ? "Loading…"
+                : soleOnly && summariesQ.isFetching
+                  ? "Checking sellers…"
+                  : soleOnly
+                    ? "No sole-seller brands on this page. Try the next page or raise Other-seller max %."
+                    : "No brands for these filters."
+            }
           />
         </div>
       )}

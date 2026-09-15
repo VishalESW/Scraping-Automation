@@ -279,3 +279,16 @@ export interface SubcategoriesResponse {
 export const SELLER_TYPES = [
   "PrivateLabel", "Reseller", "Wholesaler", "Retailer", "Manufacturer", "Unknown",
 ] as const;
+
+export interface BrandSellerSummary {
+  sellerCount: number;
+  significantCount: number;
+  ownerName: string | null;
+  ownerCoverage: number | null;
+  amazonPresent: boolean;
+  amazonCoverage: number | null;
+  soleSeller: boolean;
+}
+export interface BrandSellerSummariesResponse {
+  summaries: Record<string, BrandSellerSummary>;
+}

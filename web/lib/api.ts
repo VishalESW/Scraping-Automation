@@ -16,6 +16,7 @@ import type {
   SellerMapPageBrandsResponse,
   MapSeller,
   SubcategoryExpandResponse,
+  BrandSellerSummariesResponse,
 } from "./types";
 
 export class ApiFetchError extends Error {
@@ -214,6 +215,20 @@ export function fetchSubcategoryExpand(
   return fetch(`/api/subcategory/expand${qs({ nodeId, marketplace })}`).then((r) =>
     handle<SubcategoryExpandResponse>(r),
   );
+}
+
+/** Per-brand seller summary (owner coverage, Amazon presence, sole-seller flag)
+ *  for a page of subcategory brands. Pass only the visible page's brandIds. */
+export function fetchBrandSellerSummaries(
+  brandIds: number[],
+  marketplace?: Marketplace,
+  otherMaxPct?: number,
+): Promise<BrandSellerSummariesResponse> {
+  return fetch("/api/subcategory/brand-sellers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ brandIds, marketplace, otherMaxPct }),
+  }).then((r) => handle<BrandSellerSummariesResponse>(r));
 }
 
 export interface ExportSubcategoryBulkInput {
