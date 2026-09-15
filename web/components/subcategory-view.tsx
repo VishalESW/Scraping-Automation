@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
-import { fetchSubcategoryBrands, exportSubcategoryXlsx, type SubcategoryBrandsInput } from "@/lib/api";
+import {
+  fetchSubcategoryBrands,
+  fetchSubcategoryExpand,
+  exportSubcategoryXlsx,
+  exportSubcategoryBulkXlsx,
+  type SubcategoryBrandsInput,
+} from "@/lib/api";
 import type { SortDir, SubcategoryBrand } from "@/lib/types";
 import { money, count, num1 } from "@/lib/format";
 import { useApp } from "./app-context";
@@ -37,9 +43,17 @@ export function SubcategoryView() {
     maxRevenue: "",
     minAvgSellers: "",
     maxAvgSellers: "",
+    brandsPerSub: "100",
   });
   const [query, setQuery] = useState<Query | null>(null);
   const [selected, setSelected] = useState<{ brandId: number; name: string } | null>(null);
+
+  const isBulk = sub?.isParent === true;
+
+  // Selecting a branch clears any single-subcategory result table.
+  useEffect(() => {
+    if (isBulk) setQuery(null);
+  }, [isBulk, sub?.id]);
 
   const q = useQuery({
     queryKey: ["subcategory-brands", marketplace, query],
@@ -66,6 +80,16 @@ export function SubcategoryView() {
     if (q.error) reportError(q.error);
   }, [q.error, reportError]);
 
+  // Branch expansion (how many subcategories a whole category/branch covers).
+  const expandQ = useQuery({
+    queryKey: ["subcategory-expand", marketplace, sub?.id],
+    enabled: isBulk && !!sub,
+    queryFn: () => fetchSubcategoryExpand(sub!.id, marketplace),
+  });
+  useEffect(() => {
+    if (expandQ.error) reportError(expandQ.error);
+  }, [expandQ.error, reportError]);
+
   const exportMut = useMutation({
     mutationFn: () => {
       if (!query || !sub) throw new Error("Run a search first.");
@@ -84,9 +108,29 @@ export function SubcategoryView() {
     onError: (e) => reportError(e),
   });
 
+  const bulkExportMut = useMutation({
+    mutationFn: () => {
+      if (!sub) throw new Error("Pick a branch first.");
+      return exportSubcategoryBulkXlsx({
+        nodeId: sub.id,
+        brandsPerSubcategory: n(form.brandsPerSub),
+        minRevenue: n(form.minRevenue),
+        maxRevenue: n(form.maxRevenue),
+        minAvgSellers: n(form.minAvgSellers),
+        maxAvgSellers: n(form.maxAvgSellers),
+        marketplace,
+      });
+    },
+    onError: (e) => reportError(e),
+  });
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!sub) return;
+    if (isBulk) {
+      bulkExportMut.mutate();
+      return;
+    }
     setQuery({
       subcategoryId: String(sub.id),
       minRevenue: n(form.minRevenue),
@@ -121,7 +165,7 @@ export function SubcategoryView() {
       <form onSubmit={submit} className="card p-4">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
           <div className="col-span-2 md:col-span-3">
-            <label className="label">Subcategory *</label>
+            <label className="label">Subcategory or branch *</label>
             <SubcategoryCombobox value={sub} onChange={setSub} />
           </div>
           <div>
@@ -140,18 +184,85 @@ export function SubcategoryView() {
             <label className="label">Max avg sellers</label>
             <input className="field" inputMode="numeric" value={form.maxAvgSellers} onChange={(e) => setForm({ ...form, maxAvgSellers: e.target.value })} />
           </div>
+          {isBulk && (
+            <div>
+              <label className="label">Brands / subcategory</label>
+              <input className="field" inputMode="numeric" value={form.brandsPerSub} onChange={(e) => setForm({ ...form, brandsPerSub: e.target.value })} />
+            </div>
+          )}
         </div>
         <div className="mt-3 flex items-center gap-3">
-          <button type="submit" className="btn-primary" disabled={!sub}>
-            {q.isFetching ? "Searching…" : "Search brands"}
-          </button>
+          {isBulk ? (
+            <button type="submit" className="btn-primary" disabled={!sub || bulkExportMut.isPending}>
+              {bulkExportMut.isPending ? "Exporting… (may take minutes)" : "⬇ Bulk export brands"}
+            </button>
+          ) : (
+            <button type="submit" className="btn-primary" disabled={!sub}>
+              {q.isFetching ? "Searching…" : "Search brands"}
+            </button>
+          )}
           <span className="text-xs text-muted">
-            Pick a subcategory by name (all {""}SmartScout subcategories). IDs are per-marketplace ({marketplace}).
+            {isBulk
+              ? `Bulk mode: exports brands from every subcategory under this branch (${marketplace}).`
+              : `Pick a subcategory (leaf) to browse brands, or a branch to bulk-export. IDs are per-marketplace (${marketplace}).`}
           </span>
         </div>
       </form>
 
-      {query && (
+      {isBulk && sub && (
+        <div className="card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm">
+              <span className="font-medium text-ink">{sub.path}</span>
+              <div className="text-xs text-muted">
+                {expandQ.isFetching
+                  ? "Counting subcategories…"
+                  : expandQ.data
+                    ? `${count(expandQ.data.count)} subcategories under this branch. Bulk export pulls up to ` +
+                      `${n(form.brandsPerSub) ?? 100} brands from each (brands only — products omitted for scale).`
+                    : "—"}
+              </div>
+            </div>
+            <button
+              className="btn-ghost py-1"
+              disabled={bulkExportMut.isPending || !expandQ.data || expandQ.data.count === 0}
+              onClick={() => bulkExportMut.mutate()}
+            >
+              {bulkExportMut.isPending ? "Exporting… (may take minutes)" : "⬇ Bulk export brands"}
+            </button>
+          </div>
+          {expandQ.data && expandQ.data.count > 500 && (
+            <div className="mt-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              This branch has {count(expandQ.data.count)} subcategories; the export is capped at the 500
+              highest-revenue ones. Pick a narrower branch to cover the rest.
+            </div>
+          )}
+          {expandQ.data && expandQ.data.subcategories.length > 0 && (
+            <div className="mt-3 max-h-56 overflow-auto rounded border border-line">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr>
+                    <th className="th">Subcategory</th>
+                    <th className="th text-right">Monthly revenue</th>
+                    <th className="th text-right">Brands</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expandQ.data.subcategories.map((s) => (
+                    <tr key={s.id} className="border-b border-line">
+                      <td className="td">{s.path}</td>
+                      <td className="td text-right tabular-nums">{money(s.totalMonthlyRevenue)}</td>
+                      <td className="td text-right tabular-nums">{count(s.totalBrands)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isBulk && query && (
         <div className="card">
           <div className="flex items-center justify-between border-b border-line px-4 py-2 text-sm text-muted">
             <span>

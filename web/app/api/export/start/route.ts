@@ -4,7 +4,7 @@ import type { ExportType } from "@/lib/exporters";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID: ExportType[] = ["seller-map", "subcategory", "brand"];
+const VALID: ExportType[] = ["seller-map", "subcategory", "subcategory-bulk", "brand"];
 
 export async function POST(req: Request): Promise<Response> {
   const body = await req.json().catch(() => ({}));

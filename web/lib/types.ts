@@ -229,6 +229,23 @@ export interface RichSubcategoryBrandsResponse {
   brands: RichSubcategoryBrand[];
 }
 
+export interface SubcategoryExpandItem {
+  id: number;
+  name: string;
+  path: string;
+  totalMonthlyRevenue: number | null;
+  totalBrands: number | null;
+}
+export interface SubcategoryExpandResponse {
+  nodeId: number;
+  name: string;
+  path: string;
+  isParent: boolean;
+  count: number;
+  truncated: boolean;
+  subcategories: SubcategoryExpandItem[];
+}
+
 export interface Category {
   id: number;
   name: string;

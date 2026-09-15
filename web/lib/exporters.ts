@@ -17,14 +17,16 @@ import {
   searchSubcategoryBrands,
   mapSubcategoryBrands,
 } from "@/lib/smartscout";
-import { getCategories } from "@/lib/catalog";
+import { getCategories, getSubcategoryDescendants, fullPathOf } from "@/lib/catalog";
 import { richFromBrand } from "@/lib/brand-rich";
 import {
   buildSellerMapWorkbook,
   buildSubcategoryWorkbook,
+  buildSubcategoryBulkWorkbook,
   buildBrandWorkbook,
   type SellerBlock,
   type BrandReportEntry,
+  type BulkSubcategoryEntry,
 } from "@/lib/export";
 import { parseMarketplace, num } from "@/lib/respond";
 import type {
@@ -232,6 +234,87 @@ export async function runSubcategoryExport(b: Record<string, unknown>): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Bulk subcategory export — all subcategories under a branch / whole category.
+// Brands-level only: one paged call per subcategory (cheap). A whole category can
+// be hundreds of subcategories, so this runs as a background job and is capped.
+// ---------------------------------------------------------------------------
+const SCB_MAX_SUBCATS = 500; // hard ceiling on subcategories per bulk export
+const SCB_DEFAULT_BRANDS_PER_SUBCAT = 100;
+const SCB_MAX_BRANDS_PER_SUBCAT = 500;
+
+export async function runSubcategoryBulkExport(b: Record<string, unknown>): Promise<ExportResult> {
+  const nodeId = num(b.nodeId as string);
+  if (nodeId === undefined) throw new Error("nodeId is required");
+  const marketplace = parseMarketplace(b.marketplace as string) ?? "US";
+
+  const { node, leaves } = await getSubcategoryDescendants(marketplace, nodeId);
+  if (!node) throw new Error("Unknown subcategory node");
+  if (leaves.length === 0) throw new Error("No selectable subcategories under this branch.");
+
+  const branchPath = fullPathOf(node);
+  const brandsPerSub = Math.min(
+    num(b.brandsPerSubcategory as string) ?? SCB_DEFAULT_BRANDS_PER_SUBCAT,
+    SCB_MAX_BRANDS_PER_SUBCAT,
+  );
+  const totalSubcats = leaves.length;
+  const selected = leaves.slice(0, SCB_MAX_SUBCATS); // already revenue-sorted desc
+
+  const minRevenue = num(b.minRevenue as string);
+  const maxRevenue = num(b.maxRevenue as string);
+  const minAvgSellers = num(b.minAvgSellers as string);
+  const maxAvgSellers = num(b.maxAvgSellers as string);
+  const sortBy = (b.sortBy as string) || "revenue";
+  const sortDir = (b.sortDir as SortDir) || "desc";
+
+  const entries: BulkSubcategoryEntry[] = [];
+  for (const leaf of selected) {
+    let res: SubcategoryBrandsResponse | null = null;
+    try {
+      res = mapSubcategoryBrands(
+        await searchSubcategoryBrands({
+          subcategoryId: leaf.id,
+          minRevenue,
+          maxRevenue,
+          minAvgSellers,
+          maxAvgSellers,
+          sortBy,
+          sortDir,
+          page: 1,
+          pageSize: brandsPerSub,
+          marketplace,
+        }),
+      ) as SubcategoryBrandsResponse;
+    } catch {
+      res = null;
+    }
+    entries.push({
+      subcategoryId: leaf.id,
+      subcategoryPath: fullPathOf(leaf),
+      totalMonthlyRevenue: leaf.totalMonthlyRevenue,
+      totalBrands: leaf.totalBrands,
+      totalRowCount: res?.totalRowCount ?? null,
+      brands: res?.brands ?? [],
+    });
+  }
+
+  const parts: string[] = [];
+  if (minRevenue || maxRevenue) parts.push(`Revenue: ${minRevenue ?? "0"}-${maxRevenue ?? "max"}`);
+  if (minAvgSellers || maxAvgSellers) parts.push(`Avg sellers: ${minAvgSellers ?? "0"}-${maxAvgSellers ?? "max"}`);
+
+  const buffer = await buildSubcategoryBulkWorkbook({
+    branchPath,
+    marketplace,
+    filterSummary: parts.join(" · "),
+    entries,
+    totalSubcats,
+    truncatedSubcats: totalSubcats > SCB_MAX_SUBCATS,
+    brandsPerSubcategory: brandsPerSub,
+  });
+  const leafName = node.name || `node_${nodeId}`;
+  return { buffer, filename: safeName(`${marketplace}_${leafName}_bulk_brands`) + ".xlsx" };
+}
+
+// ---------------------------------------------------------------------------
 // Brand export (single or bulk)
 // ---------------------------------------------------------------------------
 const BR_MAX_BRANDS = 50;
@@ -331,11 +414,12 @@ export async function runBrandExport(b: Record<string, unknown>): Promise<Export
   return { buffer, filename: safeName(`${marketplace}_${base}_report`) + ".xlsx" };
 }
 
-export type ExportType = "seller-map" | "subcategory" | "brand";
+export type ExportType = "seller-map" | "subcategory" | "subcategory-bulk" | "brand";
 
 export function runExport(type: ExportType, payload: Record<string, unknown>): Promise<ExportResult> {
   if (type === "seller-map") return runSellerMapExport(payload);
   if (type === "subcategory") return runSubcategoryExport(payload);
+  if (type === "subcategory-bulk") return runSubcategoryBulkExport(payload);
   if (type === "brand") return runBrandExport(payload);
   throw new Error(`Unknown export type: ${type}`);
 }

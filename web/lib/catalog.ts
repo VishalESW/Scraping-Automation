@@ -47,16 +47,63 @@ export async function getSubcategories(marketplace: string): Promise<Subcategory
   return rows;
 }
 
+/** Full breadcrumb including the node's own name, e.g. "Pet Supplies › Dog Supplies › Dog Food". */
+export function fullPathOf(node: SubcategoryNode): string {
+  return node.path ? `${node.path} › ${node.name}` : node.name;
+}
+
+/** All selectable (isParent=false) subcategories under a branch/category node.
+ *  If the node itself is selectable, returns just that node. Sorted by revenue
+ *  desc so a capped bulk job keeps the biggest subcategories. */
+export async function getSubcategoryDescendants(
+  marketplace: string,
+  nodeId: number,
+): Promise<{ node: SubcategoryNode | null; leaves: SubcategoryNode[] }> {
+  const all = await getSubcategories(marketplace);
+  const byId = new Map<number, SubcategoryNode>();
+  const children = new Map<number, SubcategoryNode[]>();
+  for (const r of all) {
+    byId.set(r.id, r);
+    if (r.parentId != null) {
+      const arr = children.get(r.parentId) ?? [];
+      arr.push(r);
+      children.set(r.parentId, arr);
+    }
+  }
+  const node = byId.get(nodeId) ?? null;
+  if (!node) return { node: null, leaves: [] };
+  if (node.isParent === false) return { node, leaves: [node] };
+
+  const leaves: SubcategoryNode[] = [];
+  const stack = [nodeId];
+  const seen = new Set<number>();
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const c of children.get(id) ?? []) {
+      if (c.isParent === false) leaves.push(c);
+      stack.push(c.id);
+    }
+  }
+  leaves.sort((a, b) => (b.totalMonthlyRevenue ?? 0) - (a.totalMonthlyRevenue ?? 0));
+  return { node, leaves };
+}
+
 /** Case-insensitive name search over the cached catalog, ranked and capped.
- *  A numeric query also matches a node id exactly. */
+ *  A numeric query also matches a node id exactly. When includeBranches is true,
+ *  aggregation parents (whole categories / branches) are included too so the user
+ *  can pick a whole branch for a bulk export. */
 export async function searchSubcategories(
   marketplace: string,
   q: string,
   limit = 50,
+  includeBranches = false,
 ): Promise<SubcategoryNode[]> {
   const all = await getSubcategories(marketplace);
-  // Only isParent=false nodes return brands; aggregation parents return 0.
-  const rows = all.filter((r) => r.isParent === false);
+  // Only isParent=false nodes return brands directly; parents are aggregation
+  // branches, offered only when includeBranches is set (they drive bulk export).
+  const rows = includeBranches ? all : all.filter((r) => r.isParent === false);
   const query = q.trim().toLowerCase();
   if (!query) {
     // No query: show the highest-revenue selectable subcategories as a default.

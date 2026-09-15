@@ -15,6 +15,7 @@ import type {
   SellerBrandsResponse,
   SellerMapPageBrandsResponse,
   MapSeller,
+  SubcategoryExpandResponse,
 } from "./types";
 
 export class ApiFetchError extends Error {
@@ -155,7 +156,7 @@ function saveBlob(blob: Blob, name: string): void {
 // download the finished file. Avoids long single requests that hit the
 // Cloudflare/proxy ~100s timeout (HTTP 524).
 async function runExportJob(
-  type: "seller-map" | "subcategory" | "brand",
+  type: "seller-map" | "subcategory" | "subcategory-bulk" | "brand",
   payload: unknown,
   fallbackName: string,
 ): Promise<void> {
@@ -203,6 +204,32 @@ export interface ExportSubcategoryInput extends SubcategoryBrandsInput {
 
 export function exportSubcategoryXlsx(input: ExportSubcategoryInput): Promise<void> {
   return runExportJob("subcategory", input, "subcategory_brands.xlsx");
+}
+
+/** Selectable subcategories under a branch/category node (for the bulk preview). */
+export function fetchSubcategoryExpand(
+  nodeId: number,
+  marketplace?: Marketplace,
+): Promise<SubcategoryExpandResponse> {
+  return fetch(`/api/subcategory/expand${qs({ nodeId, marketplace })}`).then((r) =>
+    handle<SubcategoryExpandResponse>(r),
+  );
+}
+
+export interface ExportSubcategoryBulkInput {
+  nodeId: number;
+  brandsPerSubcategory?: number;
+  minRevenue?: number;
+  maxRevenue?: number;
+  minAvgSellers?: number;
+  maxAvgSellers?: number;
+  sortBy?: string;
+  sortDir?: SortDir;
+  marketplace?: Marketplace;
+}
+
+export function exportSubcategoryBulkXlsx(input: ExportSubcategoryBulkInput): Promise<void> {
+  return runExportJob("subcategory-bulk", input, "subcategory_bulk_brands.xlsx");
 }
 
 export interface ExportSellerMapInput extends SellerMapInput {
@@ -274,10 +301,11 @@ export function fetchSubcategories(
   q: string,
   marketplace?: Marketplace,
   limit?: number,
+  includeBranches?: boolean,
 ): Promise<SubcategoriesResponse> {
-  return fetch(`/api/subcategories${qs({ q, marketplace, limit })}`).then((r) =>
-    handle<SubcategoriesResponse>(r),
-  );
+  return fetch(
+    `/api/subcategories${qs({ q, marketplace, limit, branches: includeBranches ? 1 : undefined })}`,
+  ).then((r) => handle<SubcategoriesResponse>(r));
 }
 
 export function fetchBrandsSearch(

@@ -11,6 +11,8 @@ export interface SubcategorySelection {
   name: string;
   /** Full breadcrumb incl. leaf, joined with " > " (for the export's Subcategory column). */
   path: string;
+  /** true = aggregation branch / whole category (drives bulk export); false = leaf. */
+  isParent: boolean;
 }
 
 export function SubcategoryCombobox({
@@ -50,7 +52,9 @@ export function SubcategoryCombobox({
     queryKey: ["subcategories", marketplace as Marketplace, debounced],
     enabled: open,
     placeholderData: keepPreviousData,
-    queryFn: () => fetchSubcategories(debounced, marketplace, 50),
+    // includeBranches: also offer whole categories / branches so the user can
+    // pick one for a bulk export across all its subcategories.
+    queryFn: () => fetchSubcategories(debounced, marketplace, 50, true),
   });
 
   useEffect(() => {
@@ -63,7 +67,7 @@ export function SubcategoryCombobox({
     // Full path incl. leaf, using ">" to match the reference export format.
     const ancestors = node.path ? node.path.replace(/\s*›\s*/g, " > ") : "";
     const fullPath = ancestors ? `${ancestors} > ${node.name}` : node.name;
-    onChange({ id: node.id, name: node.name, path: fullPath });
+    onChange({ id: node.id, name: node.name, path: fullPath, isParent: node.isParent === true });
     setText(node.name);
     setOpen(false);
   }
@@ -99,7 +103,13 @@ export function SubcategoryCombobox({
 
       {value && (
         <div className="mt-1 text-xs text-muted">
-          Selected: <span className="font-medium text-ink">{value.name}</span> · id {value.id}
+          Selected: <span className="font-medium text-ink">{value.name}</span>
+          {value.isParent && (
+            <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-700">
+              branch — bulk
+            </span>
+          )}{" "}
+          · id {value.id}
         </div>
       )}
 
@@ -119,6 +129,11 @@ export function SubcategoryCombobox({
               >
                 <span className="min-w-0">
                   <span className="font-medium">{r.name}</span>
+                  {r.isParent && (
+                    <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-700">
+                      branch
+                    </span>
+                  )}
                   {r.path ? <span className="block truncate text-xs text-muted">{r.path}</span> : null}
                 </span>
                 <span className="shrink-0 text-xs text-muted">{r.id}</span>

@@ -11,8 +11,9 @@ export async function GET(req: Request): Promise<Response> {
   const marketplace = parseMarketplace(q.get("marketplace")) ?? "US";
   const query = q.get("q") ?? "";
   const limit = num(q.get("limit")) ?? 50;
+  const includeBranches = q.get("branches") === "1";
   try {
-    const subcategories = await searchSubcategories(marketplace, query, limit);
+    const subcategories = await searchSubcategories(marketplace, query, limit, includeBranches);
     return NextResponse.json({ returned: subcategories.length, subcategories });
   } catch (err) {
     const e = toApiError(err);

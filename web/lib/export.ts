@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import type {
   Product,
   RichSubcategoryBrand,
+  SubcategoryBrand,
   MapSeller,
   SellerBrand,
   BrandSeller,
@@ -319,6 +320,100 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
     }
   }
   sizeColumns(ms, SELLER_MARKETPLACE_HEADERS.length);
+
+  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+}
+
+// ---------------------------------------------------------------------------
+// Bulk subcategory export — every subcategory under a branch / whole category.
+// Brands-level only (one paged call per subcategory); products are omitted for
+// scale (a whole category can be hundreds of subcategories).
+// ---------------------------------------------------------------------------
+const BULK_BRAND_HEADERS = [
+  "Subcategory", "Brand", "Brand Id", "Monthly Revenue", "Market Share %", "MoM Share Δ",
+  "ASINs", "Avg Sellers", "Avg Price", "Avg Volume", "Units Sold", "Total Reviews",
+  "Avg Reviews", "Rating", "Avg Page Score", "Dominant Seller Country",
+];
+const BULK_SUMMARY_HEADERS = [
+  "Subcategory", "Subcategory Id", "Brands in Export", "Matching Brands (total)",
+  "Revenue in Export", "Subcategory Revenue (catalog)", "Brands (catalog)",
+];
+
+export interface BulkSubcategoryEntry {
+  subcategoryId: number;
+  subcategoryPath: string;
+  totalMonthlyRevenue: number | null;
+  totalBrands: number | null;
+  totalRowCount: number | null;
+  brands: SubcategoryBrand[];
+}
+
+export interface SubcategoryBulkExportInput {
+  branchPath: string;
+  marketplace: string;
+  filterSummary: string;
+  entries: BulkSubcategoryEntry[];
+  totalSubcats: number;
+  truncatedSubcats: boolean;
+  brandsPerSubcategory: number;
+}
+
+function bulkBrandRow(sub: string, b: SubcategoryBrand): Cell[] {
+  return [
+    sub, b.brandName, b.brandId, b.revenue, b.marketshare, b.moMMktShareChange, b.numberASINs,
+    b.avgNumberSellers, b.avgPrice, b.avgVolume, b.totalNumberUnitsSold, b.totalReviews,
+    b.avgReviews, b.reviewRating, b.avgPageScore, b.dominantSellerCountry,
+  ];
+}
+
+export async function buildSubcategoryBulkWorkbook(input: SubcategoryBulkExportInput): Promise<ArrayBuffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "SmartScout Research";
+  wb.created = new Date();
+
+  const totalBrands = input.entries.reduce((n, e) => n + e.brands.length, 0);
+
+  // --- Overview sheet ---
+  const ov = wb.addWorksheet("Overview");
+  const t = ov.addRow([`Bulk Subcategory Export — ${input.branchPath} (SmartScout, ${input.marketplace})`]);
+  t.font = { bold: true, size: 12 };
+  ov.addRow([
+    `${input.entries.length} of ${input.totalSubcats} subcategories · ${totalBrands} brand rows · ` +
+      `up to ${input.brandsPerSubcategory} brands/subcategory.`,
+  ]);
+  if (input.filterSummary) ov.addRow([input.filterSummary]);
+  if (input.truncatedSubcats) {
+    ov.addRow([
+      `Note: this branch has ${input.totalSubcats} subcategories; the export is capped at the ` +
+        `${input.entries.length} highest-revenue ones. Pick a narrower branch for the rest.`,
+    ]);
+  }
+  ov.addRow([
+    "Note: brands-level data only (revenue, market share, ASIN count, sellers, reviews). " +
+      "Open a single subcategory to export per-brand products.",
+  ]);
+  sizeColumns(ov, 1);
+
+  // --- Subcategories summary sheet ---
+  const su = wb.addWorksheet("Subcategories");
+  styleHeaderRow(su.addRow(BULK_SUMMARY_HEADERS));
+  for (const e of input.entries) {
+    const revInExport = e.brands.reduce((n, b) => n + (b.revenue ?? 0), 0);
+    su.addRow([
+      e.subcategoryPath, e.subcategoryId, e.brands.length, e.totalRowCount, revInExport,
+      e.totalMonthlyRevenue, e.totalBrands,
+    ]);
+  }
+  sizeColumns(su, BULK_SUMMARY_HEADERS.length);
+
+  // --- Brands sheet (one row per brand across every subcategory) ---
+  const bs = wb.addWorksheet("Brands");
+  styleHeaderRow(bs.addRow(BULK_BRAND_HEADERS));
+  for (const e of input.entries) {
+    for (const b of e.brands) bs.addRow(bulkBrandRow(e.subcategoryPath, b));
+  }
+  sizeColumns(bs, BULK_BRAND_HEADERS.length);
+  bs.getColumn(1).width = 48; // Subcategory path
 
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
