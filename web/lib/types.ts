@@ -181,6 +181,13 @@ export interface SellerMapResponse {
   returned: number;
   sellers: MapSeller[];
 }
+export interface SellerBrandName {
+  brandId: number;
+  brandName: string | null;
+}
+export interface SellerMapPageBrandsResponse {
+  brandsBySeller: Record<string, SellerBrandName[]>;
+}
 export interface SearchTermsResponse {
   totalRowCount: number | null;
   returned: number;

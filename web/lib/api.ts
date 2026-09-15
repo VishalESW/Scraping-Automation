@@ -13,6 +13,8 @@ import type {
   CategoriesResponse,
   SubcategoriesResponse,
   SellerBrandsResponse,
+  SellerMapPageBrandsResponse,
+  MapSeller,
 } from "./types";
 
 export class ApiFetchError extends Error {
@@ -86,6 +88,20 @@ export function fetchSellerMap(input: SellerMapInput): Promise<SellerMapResponse
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   }).then((r) => handle<SellerMapResponse>(r));
+}
+
+/** Brand names carried by each seller on the current seller-map page.
+ *  Pass only the visible page's sellerIds so it stays a light per-page load. */
+export function fetchSellerMapPageBrands(
+  sellerIds: number[],
+  marketplace?: Marketplace,
+  perSeller?: number,
+): Promise<SellerMapPageBrandsResponse> {
+  return fetch("/api/seller-map/page-brands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sellerIds, marketplace, perSeller }),
+  }).then((r) => handle<SellerMapPageBrandsResponse>(r));
 }
 
 export function fetchBrandProducts(
@@ -191,6 +207,11 @@ export function exportSubcategoryXlsx(input: ExportSubcategoryInput): Promise<vo
 
 export interface ExportSellerMapInput extends SellerMapInput {
   categoryName?: string;
+  /** When set, export exactly these sellers (the current page) instead of
+   *  re-running the search server-side. Keeps each export to one page's worth. */
+  sellers?: MapSeller[];
+  /** 1-based page number, for the filename/label only. */
+  page?: number;
 }
 
 export function exportSellerMapXlsx(input: ExportSellerMapInput): Promise<void> {

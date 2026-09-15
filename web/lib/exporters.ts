@@ -62,46 +62,55 @@ async function categoryNamer(marketplace: string): Promise<(id: number | null) =
 // ---------------------------------------------------------------------------
 // Seller Map export
 // ---------------------------------------------------------------------------
-const SM_MAX_SELLERS = 50;
-const SM_MAX_BRANDS_PER_SELLER = 10;
-const SM_MAX_TOTAL_BRANDS = 150;
+// The seller-map UI now paginates and exports ONE page at a time (≤ SM_PAGE_SELLERS
+// sellers), so a page export stays small and can't be blocked for heavy load.
+// Every brand NAME of every seller is always listed (one brandcoverage call per
+// seller — cheap). Only the deep product/marketplace enrichment is budget-capped.
+const SM_PAGE_SELLERS = 60; // hard ceiling on sellers per export (one page)
+const SM_DETAIL_BRANDS = 200; // brands (across the page) that get product/marketplace detail
 const SM_PRODUCTS_PER_BRAND = 1000;
 
 export async function runSellerMapExport(b: Record<string, unknown>): Promise<ExportResult> {
   const marketplace = parseMarketplace(b.marketplace as string) ?? "US";
   const catName = await categoryNamer(marketplace);
 
-  const smRes = mapSellerMap(
-    await sellerMapSearch({
-      categoryId: b.categoryId === "" ? undefined : (b.categoryId as string | number | undefined),
-      sellerTypeId: (b.sellerTypeId as string) || undefined,
-      minRevenue: num(b.minRevenue as string),
-      maxRevenue: num(b.maxRevenue as string),
-      sellerName: (b.sellerName as string) || undefined,
-      maxCount: num(b.maxCount as string),
-      marketplace,
-    }),
-  ) as SellerMapResponse;
-  const sellers: MapSeller[] = smRes.sellers.slice(0, SM_MAX_SELLERS);
+  // Page mode: the client sends the exact sellers shown on the current page.
+  // Fallback mode (direct API use, no `sellers`): re-run the search ourselves.
+  const provided = Array.isArray(b.sellers) ? (b.sellers as MapSeller[]) : null;
+  let sellers: MapSeller[];
+  if (provided && provided.length > 0) {
+    sellers = provided.slice(0, SM_PAGE_SELLERS);
+  } else {
+    const smRes = mapSellerMap(
+      await sellerMapSearch({
+        categoryId: b.categoryId === "" ? undefined : (b.categoryId as string | number | undefined),
+        sellerTypeId: (b.sellerTypeId as string) || undefined,
+        minRevenue: num(b.minRevenue as string),
+        maxRevenue: num(b.maxRevenue as string),
+        sellerName: (b.sellerName as string) || undefined,
+        maxCount: num(b.maxCount as string),
+        marketplace,
+      }),
+    ) as SellerMapResponse;
+    sellers = smRes.sellers.slice(0, SM_PAGE_SELLERS);
+  }
 
   const blocks: SellerBlock[] = [];
-  let brandBudget = SM_MAX_TOTAL_BRANDS;
+  let detailBudget = SM_DETAIL_BRANDS;
   for (const seller of sellers) {
-    let brandRows: SellerBrand[] = [];
+    // One call per seller → EVERY brand it carries (names + coverage). Cheap.
+    let allBrands: SellerBrand[] = [];
     try {
       const sb = mapSellerBrands(await getSellerBrands(seller.sellerId, marketplace)) as SellerBrandsResponse;
-      brandRows = sb.brands.slice(0, SM_MAX_BRANDS_PER_SELLER);
+      allBrands = sb.brands;
     } catch {
-      brandRows = [];
+      allBrands = [];
     }
 
-    const brands: SellerBlock["brands"] = [];
-    for (const coverage of brandRows) {
-      if (brandBudget <= 0) {
-        brands.push({ coverage, brand: null, products: [], marketplaces: [] });
-        continue;
-      }
-      brandBudget -= 1;
+    const detail: SellerBlock["detail"] = [];
+    for (const coverage of allBrands) {
+      if (detailBudget <= 0) break;
+      detailBudget -= 1;
 
       let brand: RichSubcategoryBrand | null = null;
       try {
@@ -128,9 +137,9 @@ export async function runSellerMapExport(b: Record<string, unknown>): Promise<Ex
       } catch {
         marketplaces = [];
       }
-      brands.push({ coverage, brand, products, marketplaces });
+      detail.push({ coverage, brand, products, marketplaces });
     }
-    blocks.push({ seller, brands });
+    blocks.push({ seller, allBrands, detail });
   }
 
   const parts: string[] = [];
@@ -138,10 +147,12 @@ export async function runSellerMapExport(b: Record<string, unknown>): Promise<Ex
   if (b.sellerTypeId) parts.push(`Type: ${b.sellerTypeId}`);
   if (b.minRevenue || b.maxRevenue) parts.push(`Revenue: ${b.minRevenue ?? "0"}-${b.maxRevenue ?? "max"}`);
   if (b.sellerName) parts.push(`Name: ${b.sellerName}`);
+  const pageNum = num(b.page as string);
+  if (pageNum) parts.push(`Page ${pageNum}`);
 
   const detailNote =
-    smRes.sellers.length > SM_MAX_SELLERS || brandBudget <= 0
-      ? `Detail is capped: up to ${SM_MAX_SELLERS} sellers, ${SM_MAX_BRANDS_PER_SELLER} brands/seller, and ${SM_MAX_TOTAL_BRANDS} brands with product/marketplace detail. Refine filters for a fuller export.`
+    detailBudget <= 0
+      ? `Every brand name is listed. Product & marketplace detail is capped at the first ${SM_DETAIL_BRANDS} brands on this page.`
       : undefined;
 
   const buffer = await buildSellerMapWorkbook({
@@ -152,7 +163,8 @@ export async function runSellerMapExport(b: Record<string, unknown>): Promise<Ex
     detailNote,
   });
   const tag = (b.categoryName || "all").toString();
-  return { buffer, filename: safeName(`${marketplace}_sellers_${tag}`) + ".xlsx" };
+  const pageTag = pageNum ? `_p${pageNum}` : "";
+  return { buffer, filename: safeName(`${marketplace}_sellers_${tag}${pageTag}`) + ".xlsx" };
 }
 
 // ---------------------------------------------------------------------------

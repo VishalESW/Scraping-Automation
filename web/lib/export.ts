@@ -165,7 +165,10 @@ export async function buildSubcategoryWorkbook(input: SubcategoryExportInput): P
 
 export interface SellerBlock {
   seller: MapSeller;
-  brands: Array<{
+  /** Every brand the seller carries (names + coverage). Always complete. */
+  allBrands: SellerBrand[];
+  /** Budgeted subset that also carries deep product/marketplace detail. */
+  detail: Array<{
     coverage: SellerBrand;
     brand: RichSubcategoryBrand | null;
     products: Product[];
@@ -182,8 +185,8 @@ export interface SellerMapExportInput {
 }
 
 const SELLER_HEADERS = [
-  "Seller", "Est. Monthly Sales", "Seller Type", "# Brands", "Latitude", "Longitude", "Seller Id",
-  "Amazon Seller Id", "Seller Page (Amazon)",
+  "Seller", "Est. Monthly Sales", "Seller Type", "# Brands", "Brands", "Latitude", "Longitude",
+  "Seller Id", "Amazon Seller Id", "Seller Page (Amazon)",
 ];
 
 // Amazon storefront domain per marketplace (for the /sp?seller= contact page).
@@ -225,32 +228,38 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
   ss.addRow([]);
   styleHeaderRow(ss.addRow(SELLER_HEADERS));
   const linkCol = SELLER_HEADERS.length; // last column = "Seller Page (Amazon)"
+  const brandsCol = 5; // "Brands" column (comma-joined names)
   for (const blk of input.sellers) {
     const s = blk.seller;
     // amazonSellerId is the same across a seller's brand rows; take the first available.
-    const amazonSellerId =
-      blk.brands.find((x) => x.coverage.amazonSellerId)?.coverage.amazonSellerId ?? null;
+    const amazonSellerId = blk.allBrands.find((x) => x.amazonSellerId)?.amazonSellerId ?? null;
+    const brandNames = blk.allBrands.map((x) => x.brandName).filter(Boolean).join(", ");
     const url = amazonSellerUrl(input.marketplace, amazonSellerId);
     const row = ss.addRow([
-      s.name, s.estimateSales, s.sellerTypeId, blk.brands.length, s.latitude, s.longitude,
-      s.sellerId, amazonSellerId, url ? { text: url, hyperlink: url } : null,
+      s.name, s.estimateSales, s.sellerTypeId, blk.allBrands.length, brandNames, s.latitude,
+      s.longitude, s.sellerId, amazonSellerId, url ? { text: url, hyperlink: url } : null,
     ]);
+    row.getCell(brandsCol).alignment = { wrapText: true, vertical: "top" };
     if (url) {
       const cell = row.getCell(linkCol);
       cell.font = { color: { argb: "FF0563C1" }, underline: true };
     }
   }
   sizeColumns(ss, SELLER_HEADERS.length);
+  ss.getColumn(brandsCol).width = 60; // Brands (wrapped list of names)
   ss.getColumn(SELLER_HEADERS.length - 1).width = 18; // Amazon Seller Id
   ss.getColumn(SELLER_HEADERS.length).width = 52; // Seller Page (Amazon)
 
   // --- Brands sheet (one row per seller → brand, with whole-catalog brand detail) ---
+  // Lists EVERY brand of every seller. Whole-catalog enrichment (brand score,
+  // category, price, …) is present only for the budgeted detail subset; the rest
+  // still carry brand name + this seller's coverage.
   const bs = wb.addWorksheet("Brands");
   styleHeaderRow(bs.addRow(SELLER_BRAND_HEADERS));
   for (const blk of input.sellers) {
-    for (const x of blk.brands) {
-      const c = x.coverage;
-      const b = x.brand;
+    const enrich = new Map(blk.detail.map((d) => [d.coverage.brandId, d.brand]));
+    for (const c of blk.allBrands) {
+      const b = enrich.get(c.brandId) ?? null;
       bs.addRow([
         blk.seller.name, c.brandName, c.brandId,
         b?.brandScore ?? null, input.catName(b?.primaryCategoryId ?? null), b?.primarySubcategory ?? null,
@@ -270,7 +279,7 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
   const ps = wb.addWorksheet("Products");
   let first = true;
   for (const blk of input.sellers) {
-    for (const b of blk.brands) {
+    for (const b of blk.detail) {
       if (!first) {
         ps.addRow([]);
         ps.addRow([]);
@@ -293,7 +302,7 @@ export async function buildSellerMapWorkbook(input: SellerMapExportInput): Promi
   styleHeaderRow(ms.addRow(SELLER_MARKETPLACE_HEADERS));
   let firstMkt = true;
   for (const blk of input.sellers) {
-    for (const b of blk.brands) {
+    for (const b of blk.detail) {
       if (b.marketplaces.length === 0) continue;
       if (!firstMkt) {
         ms.addRow([]);

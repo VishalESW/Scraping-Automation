@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
-import { fetchSellerMap, fetchCategories, exportSellerMapXlsx, type SellerMapInput } from "@/lib/api";
+import {
+  fetchSellerMap,
+  fetchCategories,
+  fetchSellerMapPageBrands,
+  exportSellerMapXlsx,
+  type SellerMapInput,
+} from "@/lib/api";
 import { SELLER_TYPES, type MapSeller } from "@/lib/types";
 import { money, count, text } from "@/lib/format";
 import { useApp } from "./app-context";
 import { DataTable, type Column } from "./data-table";
 import { SellerDetailDrawer } from "./seller-detail-drawer";
+
+const PAGE_SIZE = 50;
 
 function n(v: string): number | undefined {
   if (v.trim() === "") return undefined;
@@ -23,9 +31,10 @@ export function SellerMapView() {
     minRevenue: "",
     maxRevenue: "",
     sellerName: "",
-    maxCount: "100",
+    maxCount: "1000",
   });
   const [query, setQuery] = useState<SellerMapInput | null>(null);
+  const [page, setPage] = useState(1);
   const [selectedSeller, setSelectedSeller] = useState<{ sellerId: number; name: string } | null>(null);
 
   const cats = useQuery({
@@ -47,25 +56,53 @@ export function SellerMapView() {
     if (q.error) reportError(q.error);
   }, [q.error, reportError]);
 
+  const allRows = useMemo(() => q.data?.sellers ?? [], [q.data]);
+  const pageCount = Math.max(1, Math.ceil(allRows.length / PAGE_SIZE));
+
+  // Keep the page in range when a new result set arrives.
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), pageCount));
+  }, [pageCount]);
+
+  const start = (page - 1) * PAGE_SIZE;
+  const pageRows = useMemo(() => allRows.slice(start, start + PAGE_SIZE), [allRows, start]);
+  const pageSellerIds = useMemo(() => pageRows.map((r) => r.sellerId), [pageRows]);
+  const pageKey = pageSellerIds.join(",");
+
+  // Brand names for the CURRENT PAGE's sellers only (one brandcoverage call per
+  // seller, server-side rate-limited) — so we never fetch brands for the whole set.
+  const brandsQ = useQuery({
+    queryKey: ["seller-map-brands", marketplace, pageKey],
+    enabled: pageSellerIds.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchSellerMapPageBrands(pageSellerIds, marketplace),
+  });
+  useEffect(() => {
+    if (brandsQ.error) reportError(brandsQ.error);
+  }, [brandsQ.error, reportError]);
+
   const categoryName = (cats.data?.categories ?? []).find((c) => String(c.id) === form.categoryId)?.name;
 
   const exportMut = useMutation({
     mutationFn: () => {
       if (!query) throw new Error("Find sellers first.");
-      return exportSellerMapXlsx({ ...query, categoryName, marketplace });
+      // Export exactly the sellers shown on this page.
+      return exportSellerMapXlsx({ ...query, categoryName, marketplace, sellers: pageRows, page });
     },
     onError: (e) => reportError(e),
   });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    setPage(1);
     setQuery({
       categoryId: form.categoryId.trim() || undefined,
       sellerTypeId: form.sellerTypeId || undefined,
       minRevenue: n(form.minRevenue),
       maxRevenue: n(form.maxRevenue),
       sellerName: form.sellerName.trim() || undefined,
-      maxCount: n(form.maxCount) ?? 100,
+      maxCount: n(form.maxCount) ?? 1000,
     });
   }
 
@@ -73,6 +110,28 @@ export function SellerMapView() {
     { key: "name", header: "Seller", sortKey: "name", sortValue: (r) => r.name, render: (r) => <span className="font-medium">{text(r.name)}</span> },
     { key: "estimateSales", header: "Est. monthly sales", sortKey: "estimateSales", align: "right", sortValue: (r) => r.estimateSales, render: (r) => money(r.estimateSales) },
     { key: "sellerTypeId", header: "Type", sortKey: "sellerTypeId", sortValue: (r) => r.sellerTypeId, render: (r) => text(r.sellerTypeId) },
+    {
+      key: "brands",
+      header: "Brands",
+      render: (r) => {
+        const list = brandsQ.data?.brandsBySeller?.[r.sellerId];
+        if (!list) {
+          return <span className="text-muted">{brandsQ.isFetching ? "Loading…" : "—"}</span>;
+        }
+        if (list.length === 0) return <span className="text-muted">—</span>;
+        const names = list.map((b) => b.brandName).filter(Boolean).join(", ");
+        return (
+          <div
+            className="max-h-24 max-w-[22rem] overflow-auto whitespace-normal text-xs leading-relaxed"
+            onClick={(e) => e.stopPropagation()}
+            title={names}
+          >
+            <span className="mr-1 rounded bg-accentweak px-1 text-[10px] font-medium text-muted">{list.length}</span>
+            {names}
+          </div>
+        );
+      },
+    },
     {
       key: "geo",
       header: "Location",
@@ -83,6 +142,7 @@ export function SellerMapView() {
             href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
             target="_blank"
             rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
           >
             {r.latitude.toFixed(3)}, {r.longitude.toFixed(3)}
           </a>
@@ -92,7 +152,8 @@ export function SellerMapView() {
     },
   ];
 
-  const rows = q.data?.sellers ?? [];
+  const from = allRows.length === 0 ? 0 : start + 1;
+  const to = Math.min(start + PAGE_SIZE, allRows.length);
 
   return (
     <div className="space-y-4">
@@ -142,31 +203,58 @@ export function SellerMapView() {
             {q.isFetching ? "Searching…" : "Find sellers"}
           </button>
           <span className="text-xs text-muted">
-            Find sellers by category/type/revenue, then click a seller to see its brands → products &amp; marketplaces.
+            Find sellers by category/type/revenue. Results paginate {PAGE_SIZE}/page; each page shows every
+            seller&apos;s brands and exports on its own.
           </span>
         </div>
       </form>
 
       {query && (
         <div className="card">
-          <div className="flex items-center justify-between border-b border-line px-4 py-2 text-sm text-muted">
-            <span>{rows.length} sellers (top by estimated sales) · click a seller for its brands</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2 text-sm text-muted">
+            <span>
+              {allRows.length === 0
+                ? "No sellers"
+                : `Showing ${from}–${to} of ${allRows.length} sellers`}{" "}
+              · click a seller for its brands
+            </span>
             <button
               className="btn-ghost py-1"
-              disabled={exportMut.isPending || rows.length === 0}
+              disabled={exportMut.isPending || pageRows.length === 0}
               onClick={() => exportMut.mutate()}
-              title="Export sellers + their brands, products & marketplaces (capped; can take a few minutes)"
+              title="Export this page's sellers + their brands, products & marketplaces"
             >
-              {exportMut.isPending ? "Exporting… (may take minutes)" : "⬇ Export Excel"}
+              {exportMut.isPending ? "Exporting… (may take minutes)" : `⬇ Export page ${page}`}
             </button>
           </div>
           <DataTable
-            rows={rows}
+            rows={pageRows}
             columns={columns}
             getRowKey={(r) => r.sellerId}
             onRowClick={(r) => setSelectedSeller({ sellerId: r.sellerId, name: r.name ?? String(r.sellerId) })}
             emptyText={q.isFetching ? "Loading…" : "No sellers for these filters."}
           />
+          {allRows.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2 text-sm">
+              <button
+                className="btn-ghost py-1"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </button>
+              <span className="text-muted">
+                Page {page} of {pageCount}
+              </span>
+              <button
+                className="btn-ghost py-1"
+                disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       )}
 
