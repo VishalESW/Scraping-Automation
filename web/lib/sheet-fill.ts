@@ -106,7 +106,8 @@ export async function runSheetFill(
 
     // 2) Keep only sole-seller brands (owner sells; no Amazon / resellers).
     const brandRowsForSheet: Cell[][] = [];
-    const productRowsForSheet: Cell[][] = [];
+    const productRowsForSheet: Cell[][] = []; // includes 2 blank rows before each brand block
+    let productCount = 0; // actual product rows (excludes the blank separators)
     for (const brand of brands) {
       let soleSeller = false;
       try {
@@ -143,7 +144,14 @@ export async function runSheetFill(
       } catch {
         products = [];
       }
-      for (const p of products) productRowsForSheet.push(productRow(p, catName, refreshed));
+      if (products.length > 0) {
+        // Two blank rows between one brand's products and the next.
+        productRowsForSheet.push([], []);
+        for (const p of products) {
+          productRowsForSheet.push(productRow(p, catName, refreshed));
+          productCount += 1;
+        }
+      }
     }
 
     // 4) Write this subcategory's block at the true bottom (only if it has brands).
@@ -157,7 +165,7 @@ export async function runSheetFill(
         productsNextRow += productRowsForSheet.length;
       }
       progress.brandsWritten += brandRowsForSheet.length;
-      progress.productsWritten += productRowsForSheet.length;
+      progress.productsWritten += productCount;
     }
 
     progress.subcatsDone += 1;
