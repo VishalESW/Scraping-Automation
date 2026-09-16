@@ -97,21 +97,38 @@ function toValues(rows: Cell[][]): (string | number | boolean)[][] {
   );
 }
 
-/** Append rows to the end of a tab's data (INSERT_ROWS, RAW). */
-export async function appendRows(tab: string, rows: Cell[][]): Promise<void> {
+/** The last row that contains any data in a tab (0 if empty). Values.get omits
+ *  trailing empty rows, so the returned length is the true last used row —
+ *  unlike append, which stops at the first blank row between blocks. */
+export async function getLastRow(tab: string): Promise<number> {
+  const token = await accessToken();
+  const range = encodeURIComponent(tab);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${range}?majorDimension=ROWS`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Sheets read of "${tab}" failed: ${res.status} ${text.slice(0, 300)}`);
+  }
+  const body = (await res.json().catch(() => ({}))) as { values?: unknown[][] };
+  return body.values?.length ?? 0;
+}
+
+/** Write rows starting at a 1-based row (RAW update). Used to write at the true
+ *  bottom of a tab (getLastRow + 1), so blocks always land after existing data. */
+export async function updateRows(tab: string, startRow: number, rows: Cell[][]): Promise<void> {
   if (rows.length === 0) return;
   const token = await accessToken();
-  const range = encodeURIComponent(`${tab}!A1`);
+  const range = encodeURIComponent(`${tab}!A${startRow}`);
   const url =
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${range}:append` +
-    `?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${range}` +
+    `?valueInputOption=RAW`;
   const res = await fetch(url, {
-    method: "POST",
+    method: "PUT",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ values: toValues(rows) }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Sheets append to "${tab}" failed: ${res.status} ${text.slice(0, 300)}`);
+    throw new Error(`Sheets write to "${tab}" failed: ${res.status} ${text.slice(0, 300)}`);
   }
 }

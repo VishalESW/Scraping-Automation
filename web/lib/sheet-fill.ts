@@ -13,7 +13,7 @@ import { getSubcategoryDescendants, fullPathOf, getCategories } from "@/lib/cata
 import { richFromBrand } from "@/lib/brand-rich";
 import { summarizeSellers } from "@/lib/sole-seller";
 import { BRAND_HEADERS, brandRow, productRow, type Cell } from "@/lib/export";
-import { appendRows } from "@/lib/google-sheets";
+import { getLastRow, updateRows } from "@/lib/google-sheets";
 import type {
   SubcategoryBrandsResponse,
   BrandsResponse,
@@ -64,6 +64,11 @@ export async function runSheetFill(
   const selected = leaves.slice(0, SF_MAX_SUBCATS);
   const catName = await categoryNamer();
   const refreshed = new Date();
+
+  // Track the true bottom of each tab so every block lands after existing data
+  // (append stops at the first blank row between blocks, so we write explicitly).
+  let brandsNextRow = (await getLastRow(BRANDS_TAB)) + 1;
+  let productsNextRow = (await getLastRow(PRODUCTS_TAB)) + 1;
 
   const progress: SheetFillProgress = {
     totalSubcats: selected.length,
@@ -139,11 +144,16 @@ export async function runSheetFill(
       for (const p of products) productRowsForSheet.push(productRow(p, catName, refreshed));
     }
 
-    // 4) Append this subcategory's block to the sheet (only if it has brands).
+    // 4) Write this subcategory's block at the true bottom (only if it has brands).
     if (brandRowsForSheet.length > 0) {
       // A blank separator row, a per-block header (Brand Name… from col B), then rows.
-      await appendRows(BRANDS_TAB, [[""], ["", ...BRAND_HEADERS.slice(1)], ...brandRowsForSheet]);
-      if (productRowsForSheet.length > 0) await appendRows(PRODUCTS_TAB, productRowsForSheet);
+      const block: Cell[][] = [[""], ["", ...BRAND_HEADERS.slice(1)], ...brandRowsForSheet];
+      await updateRows(BRANDS_TAB, brandsNextRow, block);
+      brandsNextRow += block.length;
+      if (productRowsForSheet.length > 0) {
+        await updateRows(PRODUCTS_TAB, productsNextRow, productRowsForSheet);
+        productsNextRow += productRowsForSheet.length;
+      }
       progress.brandsWritten += brandRowsForSheet.length;
       progress.productsWritten += productRowsForSheet.length;
     }
