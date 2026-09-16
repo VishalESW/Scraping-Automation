@@ -290,12 +290,29 @@ export interface ResolvedBrand {
   brandName?: string;
 }
 
-export function resolveBrands(names: string[], marketplace?: Marketplace): Promise<{ resolved: ResolvedBrand[] }> {
-  return fetch("/api/brands/resolve", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ names, marketplace }),
-  }).then((r) => handle<{ resolved: ResolvedBrand[] }>(r));
+// The resolve endpoint handles ~50 names per request (one search each, serially
+// rate-limited — more would hit the proxy timeout). To resolve any number of
+// names, dedupe and send them in chunks of 50, one request at a time.
+const RESOLVE_CHUNK = 50;
+
+export async function resolveBrands(
+  names: string[],
+  marketplace?: Marketplace,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ resolved: ResolvedBrand[] }> {
+  const unique = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)));
+  const resolved: ResolvedBrand[] = [];
+  for (let i = 0; i < unique.length; i += RESOLVE_CHUNK) {
+    const chunk = unique.slice(i, i + RESOLVE_CHUNK);
+    const res = await fetch("/api/brands/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ names: chunk, marketplace }),
+    }).then((r) => handle<{ resolved: ResolvedBrand[] }>(r));
+    resolved.push(...res.resolved);
+    onProgress?.(Math.min(i + RESOLVE_CHUNK, unique.length), unique.length);
+  }
+  return { resolved };
 }
 
 export function fetchSellerBrands(

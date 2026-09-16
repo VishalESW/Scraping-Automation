@@ -7,6 +7,8 @@ import { useApp } from "./app-context";
 import { BrandCombobox, type BrandSelection } from "./brand-combobox";
 import { BrandDetailDrawer } from "./brand-detail-drawer";
 
+const MAX_SELECTED = 250; // matches the export cap (BR_MAX_BRANDS)
+
 const SECTION_META: { key: keyof BrandExportSections; label: string; hint: string }[] = [
   { key: "overview", label: "Brand data", hint: "One row per brand — score, revenue, rating, growth, product count…" },
   { key: "products", label: "Products", hint: "All ASINs with revenue, rank, price, reviews…" },
@@ -20,6 +22,8 @@ export function BrandView() {
   const [brands, setBrands] = useState<BrandSelection[]>([]);
   const [bulkText, setBulkText] = useState("");
   const [notFound, setNotFound] = useState<string[]>([]);
+  const [resolveProgress, setResolveProgress] = useState<{ done: number; total: number } | null>(null);
+  const [capNote, setCapNote] = useState<string | null>(null);
   const [details, setDetails] = useState<BrandSelection | null>(null);
   const [sections, setSections] = useState<BrandExportSections>({
     overview: true,
@@ -32,7 +36,14 @@ export function BrandView() {
   const anySelected = Object.values(sections).some(Boolean);
 
   function addBrand(b: BrandSelection) {
-    setBrands((list) => (list.some((x) => x.brandId === b.brandId) ? list : [...list, b]));
+    setBrands((list) => {
+      if (list.some((x) => x.brandId === b.brandId)) return list;
+      if (list.length >= MAX_SELECTED) {
+        setCapNote(`You can select up to ${MAX_SELECTED} brands.`);
+        return list;
+      }
+      return [...list, b];
+    });
   }
   function removeBrand(id: number) {
     setBrands((list) => list.filter((x) => x.brandId !== id));
@@ -42,18 +53,42 @@ export function BrandView() {
     mutationFn: async () => {
       const names = bulkText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
       if (names.length === 0) throw new Error("Enter one or more brand names.");
-      return resolveBrands(names, marketplace);
+      setResolveProgress({ done: 0, total: new Set(names).size });
+      return resolveBrands(names, marketplace, (done, total) => setResolveProgress({ done, total }));
     },
     onSuccess: (res) => {
       const miss: string[] = [];
+      const found: BrandSelection[] = [];
       for (const r of res.resolved) {
-        if (r.found && r.brandId != null) addBrand({ brandId: r.brandId, name: r.brandName ?? r.query });
+        if (r.found && r.brandId != null) found.push({ brandId: r.brandId, name: r.brandName ?? r.query });
         else miss.push(r.query);
       }
+      // Merge into the current selection, de-duped, capped at MAX_SELECTED.
+      let overflow = 0;
+      setBrands((list) => {
+        const seen = new Set(list.map((x) => x.brandId));
+        const next = [...list];
+        for (const b of found) {
+          if (seen.has(b.brandId)) continue;
+          if (next.length >= MAX_SELECTED) {
+            overflow += 1;
+            continue;
+          }
+          seen.add(b.brandId);
+          next.push(b);
+        }
+        return next;
+      });
       setNotFound(miss);
+      setCapNote(
+        overflow > 0
+          ? `Reached the ${MAX_SELECTED}-brand cap; ${overflow} resolved brand${overflow === 1 ? "" : "s"} not added.`
+          : null,
+      );
       setBulkText("");
     },
     onError: (e) => reportError(e),
+    onSettled: () => setResolveProgress(null),
   });
 
   const exportMut = useMutation({
@@ -94,14 +129,20 @@ export function BrandView() {
               disabled={resolveMut.isPending || bulkText.trim() === ""}
               onClick={() => resolveMut.mutate()}
             >
-              {resolveMut.isPending ? "Resolving…" : "Resolve & add"}
+              {resolveMut.isPending
+                ? resolveProgress
+                  ? `Resolving… (${resolveProgress.done}/${resolveProgress.total})`
+                  : "Resolving…"
+                : "Resolve & add"}
             </button>
             <span className="text-xs text-muted">
-              Matches each name to a brand (best match). Per-marketplace IDs ({marketplace}).
+              Matches each name to a brand (best match). Any number of names — resolved in batches
+              (up to {MAX_SELECTED} selected). Per-marketplace IDs ({marketplace}).
             </span>
           </div>
+          {capNote && <p className="mt-2 text-xs text-neg">{capNote}</p>}
           {notFound.length > 0 && (
-            <p className="mt-2 text-xs text-neg">Not found: {notFound.join(", ")}</p>
+            <p className="mt-2 text-xs text-neg">Not found ({notFound.length}): {notFound.join(", ")}</p>
           )}
         </div>
       </div>

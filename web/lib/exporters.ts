@@ -317,7 +317,7 @@ export async function runSubcategoryBulkExport(b: Record<string, unknown>): Prom
 // ---------------------------------------------------------------------------
 // Brand export (single or bulk)
 // ---------------------------------------------------------------------------
-const BR_MAX_BRANDS = 50;
+const BR_MAX_BRANDS = 250;
 const BR_PRODUCTS_LIMIT = 1000;
 const BR_SEARCH_TERMS_LIMIT = 1000;
 
