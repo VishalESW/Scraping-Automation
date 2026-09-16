@@ -292,3 +292,18 @@ export interface BrandSellerSummary {
 export interface BrandSellerSummariesResponse {
   summaries: Record<string, BrandSellerSummary>;
 }
+
+export interface SheetFillProgress {
+  totalSubcats: number;
+  subcatsDone: number;
+  brandsWritten: number;
+  productsWritten: number;
+  current: string | null;
+}
+export interface SheetFillStatusResponse {
+  status: "running" | "done" | "error" | "expired";
+  progress?: SheetFillProgress;
+  error?: string;
+  statusCode?: number;
+  tokenExpired?: boolean;
+}

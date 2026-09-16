@@ -11,9 +11,9 @@ import type {
   BrandMarketplace,
 } from "./types";
 
-type Cell = string | number | boolean | Date | null;
+export type Cell = string | number | boolean | Date | null;
 
-const BRAND_HEADERS = [
+export const BRAND_HEADERS = [
   "Subcategory", "Brand Name", "Brand Score", "Main Category", "Primary Subcategory",
   "Est. Monthly Revenue", "Trailing 12 Months", "Avg. Price", "Avg. Volume", "Avg. FBA Sellers",
   "Avg. Sellers", "Dominant Seller", "Country", "Sales %", "Est. Monthly Sales",
@@ -22,7 +22,7 @@ const BRAND_HEADERS = [
   "Total Est. FBA Fees", "Notes", "Storefront Url",
 ];
 
-const PRODUCT_HEADERS = [
+export const PRODUCT_HEADERS = [
   "Product Image", "ASIN", "Page Score", "Title", "Brand", "Est. Monthly Revenue",
   "Est. 12 Month Revenue", "Est. Monthly Units Sold", "Est. 12 Month Units Sold",
   "Main Category Rank", "Main Category Name", "Primary Subcategory Rank", "Primary Subcategory Name",
@@ -45,7 +45,7 @@ function styleHeaderRow(row: ExcelJS.Row): void {
   });
 }
 
-function brandRow(b: RichSubcategoryBrand, subcategoryPath: string, catName: (id: number | null) => string): Cell[] {
+export function brandRow(b: RichSubcategoryBrand, subcategoryPath: string, catName: (id: number | null) => string): Cell[] {
   return [
     subcategoryPath,
     b.brandName,
@@ -77,7 +77,7 @@ function brandRow(b: RichSubcategoryBrand, subcategoryPath: string, catName: (id
   ];
 }
 
-function productRow(p: Product, catName: (id: number | null) => string, refreshed: Date): Cell[] {
+export function productRow(p: Product, catName: (id: number | null) => string, refreshed: Date): Cell[] {
   return [
     "", // Product Image (not embedded)
     p.asin,

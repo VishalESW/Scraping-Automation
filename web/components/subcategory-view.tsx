@@ -8,6 +8,8 @@ import {
   fetchBrandSellerSummaries,
   exportSubcategoryXlsx,
   exportSubcategoryBulkXlsx,
+  startSheetFill,
+  getSheetFillStatus,
   type SubcategoryBrandsInput,
 } from "@/lib/api";
 import type { SortDir, SubcategoryBrand } from "@/lib/types";
@@ -51,6 +53,8 @@ export function SubcategoryView() {
   // Sole-seller filter: keep only brands the owner sells itself (no Amazon/resellers).
   const [soleOnly, setSoleOnly] = useState(false);
   const [otherMaxPct, setOtherMaxPct] = useState("5");
+  // Automated Google Sheet fill.
+  const [sheetJobId, setSheetJobId] = useState<string | null>(null);
 
   const isBulk = sub?.isParent === true;
 
@@ -126,6 +130,28 @@ export function SubcategoryView() {
     },
     onError: (e) => reportError(e),
   });
+
+  const sheetFillMut = useMutation({
+    mutationFn: () => {
+      if (!sub) throw new Error("Pick a category or subcategory first.");
+      return startSheetFill(sub.id);
+    },
+    onSuccess: (res) => setSheetJobId(res.id),
+    onError: (e) => reportError(e),
+  });
+
+  const sheetStatusQ = useQuery({
+    queryKey: ["sheet-fill", sheetJobId],
+    enabled: !!sheetJobId,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 2500 : false),
+    queryFn: () => getSheetFillStatus(sheetJobId!),
+  });
+  useEffect(() => {
+    if (sheetStatusQ.data?.status === "error" && sheetStatusQ.data.error) {
+      reportError(new Error(sheetStatusQ.data.error));
+    }
+  }, [sheetStatusQ.data, reportError]);
+  const sheetRunning = sheetStatusQ.data?.status === "running";
 
   const bulkExportMut = useMutation({
     mutationFn: () => {
@@ -250,6 +276,49 @@ export function SubcategoryView() {
           </span>
         </div>
       </form>
+
+      {sub && (
+        <div className="card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm">
+              <span className="font-medium text-ink">Auto-fill Google Sheet</span>
+              <div className="text-xs text-muted">
+                US · revenue $20k–$100k · sole-seller only (no Amazon / resellers) · appends to the
+                Brands &amp; Products tabs. Runs in the background — you can close this tab.
+              </div>
+            </div>
+            <button
+              className="btn-primary py-1.5"
+              disabled={sheetFillMut.isPending || sheetRunning}
+              onClick={() => sheetFillMut.mutate()}
+            >
+              {sheetFillMut.isPending || sheetRunning ? "Running…" : "▶ Start — fill sheet"}
+            </button>
+          </div>
+          {sheetJobId && sheetStatusQ.data && (
+            <div className="mt-3 rounded border border-line px-3 py-2 text-xs">
+              {(() => {
+                const s = sheetStatusQ.data;
+                const p = s.progress;
+                if (s.status === "error") return <span className="text-neg">Failed: {s.error}</span>;
+                if (s.status === "expired") return <span className="text-muted">Job expired — start again.</span>;
+                const label =
+                  s.status === "done" ? "Done" : p?.current ? `Working: ${p.current}` : "Starting…";
+                return (
+                  <div className="space-y-1">
+                    <div className={s.status === "done" ? "font-medium text-brand" : "font-medium"}>{label}</div>
+                    {p && (
+                      <div className="text-muted">
+                        {p.subcatsDone}/{p.totalSubcats} subcategories · {p.brandsWritten} brands · {p.productsWritten} products written
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
 
       {isBulk && sub && (
         <div className="card p-4">

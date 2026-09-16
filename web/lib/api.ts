@@ -17,6 +17,7 @@ import type {
   MapSeller,
   SubcategoryExpandResponse,
   BrandSellerSummariesResponse,
+  SheetFillStatusResponse,
 } from "./types";
 
 export class ApiFetchError extends Error {
@@ -281,6 +282,21 @@ export interface ExportBrandInput {
 
 export function exportBrandXlsx(input: ExportBrandInput): Promise<void> {
   return runExportJob("brand", input, "brand_report.xlsx");
+}
+
+// --- Automated Google Sheet fill (background job) ---
+export function startSheetFill(nodeId: number): Promise<{ id: string }> {
+  return fetch("/api/sheet/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: { nodeId } }),
+  }).then((r) => handle<{ id: string }>(r));
+}
+
+export function getSheetFillStatus(id: string): Promise<SheetFillStatusResponse> {
+  return fetch(`/api/sheet/status?id=${encodeURIComponent(id)}`).then((r) =>
+    handle<SheetFillStatusResponse>(r),
+  );
 }
 
 export interface ResolvedBrand {
