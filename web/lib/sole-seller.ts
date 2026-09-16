@@ -24,9 +24,12 @@ export interface SoleSellerSummary {
   soleSeller: boolean;
 }
 
-// A brand is "sole-seller" when exactly one seller sits at/above the coverage
-// threshold and that seller is not Amazon (i.e. the brand owner sells it, no
-// significant reseller or Amazon presence).
+// A brand is "sole-seller" when the brand owner is the ONLY seller: exactly one
+// seller in the coverage list and it is not Amazon. Any reseller (however small)
+// or any Amazon presence disqualifies it.
+//
+// `thresholdPct` no longer affects qualification (kept for the summary's display
+// fields only): the rule is strict — zero other sellers.
 export function summarizeSellers(sellers: BrandSeller[], thresholdPct: number): SoleSellerSummary {
   const sorted = [...sellers].sort(
     (a, z) => (z.estimateBrandPercentage ?? 0) - (a.estimateBrandPercentage ?? 0),
@@ -40,9 +43,9 @@ export function summarizeSellers(sellers: BrandSeller[], thresholdPct: number): 
     significantCount: significant.length,
     ownerName: owner?.sellerName ?? null,
     ownerCoverage: owner?.estimateBrandPercentage ?? null,
-    amazonPresent: amazonCoverage >= thresholdPct,
+    amazonPresent: amazonRows.length > 0,
     amazonCoverage: amazonRows.length ? amazonCoverage : null,
-    soleSeller:
-      significant.length === 1 && !isAmazonSeller(significant[0].sellerName, significant[0].amazonSellerId),
+    // Strict: the brand owner is the one and only seller, and not Amazon.
+    soleSeller: sorted.length === 1 && !isAmazonSeller(sorted[0].sellerName, sorted[0].amazonSellerId),
   };
 }

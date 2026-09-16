@@ -27,7 +27,9 @@ import type {
 const MARKETPLACE = "US";
 const MIN_REVENUE = 20000;
 const MAX_REVENUE = 100000;
-const SOLE_THRESHOLD = 5; // a seller counts as reseller/Amazon at/above this coverage %
+// Sole-seller is strict: the brand must be the ONLY seller (no Amazon, no
+// resellers at all). This threshold only feeds the summary's display fields.
+const SOLE_THRESHOLD = 5;
 
 const SF_MAX_SUBCATS = 500; // ceiling on subcategories per run
 const SF_BRANDS_PER_SUBCAT = 150; // brands examined per subcategory

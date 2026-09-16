@@ -50,9 +50,9 @@ export function SubcategoryView() {
   });
   const [query, setQuery] = useState<Query | null>(null);
   const [selected, setSelected] = useState<{ brandId: number; name: string } | null>(null);
-  // Sole-seller filter: keep only brands the owner sells itself (no Amazon/resellers).
+  // Sole-seller filter: keep only brands the owner is the ONLY seller of
+  // (exactly one seller, not Amazon — any reseller disqualifies).
   const [soleOnly, setSoleOnly] = useState(false);
-  const [otherMaxPct, setOtherMaxPct] = useState("5");
   // Automated Google Sheet fill.
   const [sheetJobId, setSheetJobId] = useState<string | null>(null);
 
@@ -93,11 +93,11 @@ export function SubcategoryView() {
   const pageBrandIds = (q.data?.brands ?? []).map((b) => b.brandId);
   const pageKey = pageBrandIds.join(",");
   const summariesQ = useQuery({
-    queryKey: ["brand-seller-summaries", marketplace, pageKey, otherMaxPct],
+    queryKey: ["brand-seller-summaries", marketplace, pageKey],
     enabled: !isBulk && soleOnly && pageBrandIds.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchBrandSellerSummaries(pageBrandIds, marketplace, n(otherMaxPct)),
+    queryFn: () => fetchBrandSellerSummaries(pageBrandIds, marketplace),
   });
   useEffect(() => {
     if (summariesQ.error) reportError(summariesQ.error);
@@ -378,20 +378,8 @@ export function SubcategoryView() {
           <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2 text-sm">
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={soleOnly} onChange={(e) => setSoleOnly(e.target.checked)} />
-              Sole-seller only <span className="text-muted">(brand owner sells; no Amazon / resellers)</span>
+              Sole-seller only <span className="text-muted">(brand is the ONLY seller — no Amazon / resellers)</span>
             </label>
-            {soleOnly && (
-              <label className="flex items-center gap-1 text-xs text-muted">
-                Other-seller max %
-                <input
-                  className="field w-16 py-0.5"
-                  inputMode="numeric"
-                  value={otherMaxPct}
-                  onChange={(e) => setOtherMaxPct(e.target.value)}
-                  title="A brand qualifies if only one seller is at/above this coverage %, and it isn't Amazon."
-                />
-              </label>
-            )}
             {soleOnly && summaries && (
               <span className="text-xs text-muted">
                 {displayRows.length} of {rows.length} sole-seller on this page
@@ -442,7 +430,7 @@ export function SubcategoryView() {
                 : soleOnly && summariesQ.isFetching
                   ? "Checking sellers…"
                   : soleOnly
-                    ? "No sole-seller brands on this page. Try the next page or raise Other-seller max %."
+                    ? "No sole-seller brands on this page (every brand here has resellers or Amazon). Try the next page."
                     : "No brands for these filters."
             }
           />
