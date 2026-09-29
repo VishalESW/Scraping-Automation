@@ -8,9 +8,11 @@ import {
   fetchBrandSellerSummaries,
   exportSubcategoryXlsx,
   exportSubcategoryBulkXlsx,
+  exportSubcategoryDataXlsx,
   startSheetFill,
   getSheetFillStatus,
   type SubcategoryBrandsInput,
+  type BrandExportSections,
 } from "@/lib/api";
 import type { SortDir, SubcategoryBrand } from "@/lib/types";
 import { money, count, num1, text } from "@/lib/format";
@@ -20,6 +22,14 @@ import { BrandDetailDrawer } from "./brand-detail-drawer";
 import { SubcategoryCombobox, type SubcategorySelection } from "./subcategory-combobox";
 
 const PAGE_SIZE = 50;
+
+const DATA_SECTION_META: { key: keyof BrandExportSections; label: string; hint: string }[] = [
+  { key: "overview", label: "Brand data", hint: "One row per brand — score, revenue, rating, growth…" },
+  { key: "products", label: "Products", hint: "All ASINs per brand — revenue, rank, price, reviews…" },
+  { key: "sellers", label: "Sellers", hint: "Sellers carrying each brand + Amazon seller-page links" },
+  { key: "searchTerms", label: "Search terms", hint: "Ranking keywords, volume, CPC, ad spend" },
+  { key: "marketplaces", label: "Marketplaces", hint: "Per-marketplace revenue, units, rating" },
+];
 
 interface Query {
   subcategoryId: string;
@@ -55,6 +65,14 @@ export function SubcategoryView() {
   const [soleOnly, setSoleOnly] = useState(false);
   // Automated Google Sheet fill.
   const [sheetJobId, setSheetJobId] = useState<string | null>(null);
+  // "Export data" (Brand-tab-style multi-section report for the subcategory).
+  const [dataSections, setDataSections] = useState<BrandExportSections>({
+    overview: true,
+    products: true,
+    sellers: true,
+    searchTerms: true,
+    marketplaces: true,
+  });
 
   const isBulk = sub?.isParent === true;
 
@@ -163,6 +181,25 @@ export function SubcategoryView() {
         maxRevenue: n(form.maxRevenue),
         minAvgSellers: n(form.minAvgSellers),
         maxAvgSellers: n(form.maxAvgSellers),
+        marketplace,
+      });
+    },
+    onError: (e) => reportError(e),
+  });
+
+  const dataExportMut = useMutation({
+    mutationFn: () => {
+      if (!sub) throw new Error("Pick a subcategory first.");
+      const anyOn = Object.values(dataSections).some(Boolean);
+      if (!anyOn) throw new Error("Select at least one section.");
+      return exportSubcategoryDataXlsx({
+        subcategoryId: sub.id,
+        subcategoryPath: sub.path,
+        minRevenue: n(form.minRevenue),
+        maxRevenue: n(form.maxRevenue),
+        minAvgSellers: n(form.minAvgSellers),
+        maxAvgSellers: n(form.maxAvgSellers),
+        sections: dataSections,
         marketplace,
       });
     },
@@ -317,6 +354,52 @@ export function SubcategoryView() {
               })()}
             </div>
           )}
+        </div>
+      )}
+
+      {!isBulk && sub && (
+        <div className="card p-4">
+          <div className="mb-1 text-sm font-medium text-ink">Export subcategory data</div>
+          <div className="mb-3 text-xs text-muted">
+            Brands, products, sellers &amp; search terms for every brand in{" "}
+            <span className="font-medium text-ink">{sub.name}</span> (respects the revenue / avg-seller
+            filters above), as a multi-sheet Excel — same format as the Brand tab. Separate from the sheet
+            auto-fill.
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {DATA_SECTION_META.map((s) => (
+              <label
+                key={s.key}
+                className={`flex cursor-pointer items-start gap-2.5 rounded-md border p-3 transition-colors ${
+                  dataSections[s.key] ? "border-brand bg-accentweak" : "border-line hover:border-linestrong"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-brand"
+                  checked={dataSections[s.key]}
+                  onChange={() => setDataSections((d) => ({ ...d, [s.key]: !d[s.key] }))}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">{s.label}</span>
+                  <span className="block text-xs text-muted">{s.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              className="btn-primary"
+              disabled={dataExportMut.isPending || !Object.values(dataSections).some(Boolean)}
+              onClick={() => dataExportMut.mutate()}
+            >
+              {dataExportMut.isPending ? "Exporting… (may take minutes)" : "⬇ Export data (Excel)"}
+            </button>
+            {!Object.values(dataSections).some(Boolean) && (
+              <span className="text-xs text-neg">Select at least one section.</span>
+            )}
+            <span className="text-xs text-muted">Up to 150 brands · runs in the background.</span>
+          </div>
         </div>
       )}
 

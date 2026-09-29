@@ -158,7 +158,7 @@ function saveBlob(blob: Blob, name: string): void {
 // download the finished file. Avoids long single requests that hit the
 // Cloudflare/proxy ~100s timeout (HTTP 524).
 async function runExportJob(
-  type: "seller-map" | "subcategory" | "subcategory-bulk" | "brand",
+  type: "seller-map" | "subcategory" | "subcategory-bulk" | "subcategory-data" | "brand",
   payload: unknown,
   fallbackName: string,
 ): Promise<void> {
@@ -246,6 +246,22 @@ export interface ExportSubcategoryBulkInput {
 
 export function exportSubcategoryBulkXlsx(input: ExportSubcategoryBulkInput): Promise<void> {
   return runExportJob("subcategory-bulk", input, "subcategory_bulk_brands.xlsx");
+}
+
+export interface ExportSubcategoryDataInput {
+  subcategoryId: string | number;
+  subcategoryPath?: string;
+  minRevenue?: number;
+  maxRevenue?: number;
+  minAvgSellers?: number;
+  maxAvgSellers?: number;
+  sections: { overview: boolean; products: boolean; sellers: boolean; searchTerms: boolean; marketplaces: boolean };
+  marketplace?: Marketplace;
+}
+
+// Brand-tab-style multi-section report for every brand in a subcategory.
+export function exportSubcategoryDataXlsx(input: ExportSubcategoryDataInput): Promise<void> {
+  return runExportJob("subcategory-data", input, "subcategory_data_report.xlsx");
 }
 
 export interface ExportSellerMapInput extends SellerMapInput {

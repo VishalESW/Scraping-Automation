@@ -333,21 +333,24 @@ interface Sections {
   marketplaces?: boolean;
 }
 
-export async function runBrandExport(b: Record<string, unknown>): Promise<ExportResult> {
-  const list: BrandRef[] = Array.isArray(b.brands)
-    ? (b.brands as BrandRef[])
-    : b.brandId !== undefined
-      ? [{ brandId: b.brandId as number | string, brandName: b.brandName as string }]
-      : [];
-  if (list.length === 0) throw new Error("Provide at least one brand.");
-  const sections: Sections = (b.sections as Sections) ?? {};
-  if (!sections.overview && !sections.products && !sections.sellers && !sections.searchTerms && !sections.marketplaces) {
-    throw new Error("Select at least one section to include.");
-  }
-  const marketplace = parseMarketplace(b.marketplace as string) ?? "US";
-  const catName = await categoryNamer(marketplace);
-  const refs = list.slice(0, BR_MAX_BRANDS);
+function sectionsFlags(sections: Sections) {
+  return {
+    overview: !!sections.overview,
+    products: !!sections.products,
+    sellers: !!sections.sellers,
+    searchTerms: !!sections.searchTerms,
+    marketplaces: !!sections.marketplaces,
+  };
+}
 
+// Fetch the selected sections (overview / products / sellers / search terms /
+// marketplaces) for a list of brands. Shared by the Brand tab and the
+// Subcategory "export data" flow.
+async function buildBrandEntries(
+  refs: BrandRef[],
+  sections: Sections,
+  marketplace: string,
+): Promise<BrandReportEntry[]> {
   const entries: BrandReportEntry[] = [];
   for (const ref of refs) {
     const brandId = Number(ref.brandId);
@@ -397,29 +400,89 @@ export async function runBrandExport(b: Record<string, unknown>): Promise<Export
     }
     entries.push(entry);
   }
+  return entries;
+}
 
-  const buffer = await buildBrandWorkbook({
-    marketplace,
-    entries,
-    sections: {
-      overview: !!sections.overview,
-      products: !!sections.products,
-      sellers: !!sections.sellers,
-      searchTerms: !!sections.searchTerms,
-      marketplaces: !!sections.marketplaces,
-    },
-    catName,
-  });
+export async function runBrandExport(b: Record<string, unknown>): Promise<ExportResult> {
+  const list: BrandRef[] = Array.isArray(b.brands)
+    ? (b.brands as BrandRef[])
+    : b.brandId !== undefined
+      ? [{ brandId: b.brandId as number | string, brandName: b.brandName as string }]
+      : [];
+  if (list.length === 0) throw new Error("Provide at least one brand.");
+  const sections: Sections = (b.sections as Sections) ?? {};
+  if (!sections.overview && !sections.products && !sections.sellers && !sections.searchTerms && !sections.marketplaces) {
+    throw new Error("Select at least one section to include.");
+  }
+  const marketplace = parseMarketplace(b.marketplace as string) ?? "US";
+  const catName = await categoryNamer(marketplace);
+  const refs = list.slice(0, BR_MAX_BRANDS);
+
+  const entries = await buildBrandEntries(refs, sections, marketplace);
+  const buffer = await buildBrandWorkbook({ marketplace, entries, sections: sectionsFlags(sections), catName });
   const base = entries.length === 1 ? entries[0].brandName : `${entries.length}_brands`;
   return { buffer, filename: safeName(`${marketplace}_${base}_report`) + ".xlsx" };
 }
 
-export type ExportType = "seller-map" | "subcategory" | "subcategory-bulk" | "brand";
+// ---------------------------------------------------------------------------
+// Subcategory data export — the Brand-tab multi-section report for every brand
+// in a chosen subcategory (brands + products + sellers + search terms +
+// marketplaces). Separate from the seller-map/subcategory grid exports.
+// ---------------------------------------------------------------------------
+const SD_MAX_BRANDS = 150;
+const SD_BRAND_PAGE = 100;
+
+export async function runSubcategoryDataExport(b: Record<string, unknown>): Promise<ExportResult> {
+  if (b.subcategoryId === undefined || b.subcategoryId === null || b.subcategoryId === "") {
+    throw new Error("subcategoryId is required");
+  }
+  const sections: Sections = (b.sections as Sections) ?? {};
+  if (!sections.overview && !sections.products && !sections.sellers && !sections.searchTerms && !sections.marketplaces) {
+    throw new Error("Select at least one section to include.");
+  }
+  const marketplace = parseMarketplace(b.marketplace as string) ?? "US";
+  const catName = await categoryNamer(marketplace);
+
+  // Gather the subcategory's brands (respecting the same numeric filters), capped.
+  const list: { brandId: number; brandName: string }[] = [];
+  let page = 1;
+  let total = Infinity;
+  while (list.length < SD_MAX_BRANDS && (page - 1) * SD_BRAND_PAGE < total) {
+    const res = mapSubcategoryBrands(
+      await searchSubcategoryBrands({
+        subcategoryId: b.subcategoryId as string | number,
+        minRevenue: num(b.minRevenue as string),
+        maxRevenue: num(b.maxRevenue as string),
+        minAvgSellers: num(b.minAvgSellers as string),
+        maxAvgSellers: num(b.maxAvgSellers as string),
+        sortBy: (b.sortBy as string) || "revenue",
+        sortDir: (b.sortDir as SortDir) || "desc",
+        page,
+        pageSize: SD_BRAND_PAGE,
+        marketplace,
+      }),
+    ) as SubcategoryBrandsResponse;
+    total = res.totalRowCount ?? res.returned;
+    for (const r of res.brands) list.push({ brandId: r.brandId, brandName: r.brandName });
+    if (res.returned < SD_BRAND_PAGE) break;
+    page += 1;
+  }
+  if (list.length === 0) throw new Error("No brands for this subcategory / filters.");
+  const refs = list.slice(0, SD_MAX_BRANDS);
+
+  const entries = await buildBrandEntries(refs, sections, marketplace);
+  const buffer = await buildBrandWorkbook({ marketplace, entries, sections: sectionsFlags(sections), catName });
+  const leaf = ((b.subcategoryPath as string) || String(b.subcategoryId)).split(">").pop()?.trim() || "subcategory";
+  return { buffer, filename: safeName(`${marketplace}_${leaf}_data_report`) + ".xlsx" };
+}
+
+export type ExportType = "seller-map" | "subcategory" | "subcategory-bulk" | "subcategory-data" | "brand";
 
 export function runExport(type: ExportType, payload: Record<string, unknown>): Promise<ExportResult> {
   if (type === "seller-map") return runSellerMapExport(payload);
   if (type === "subcategory") return runSubcategoryExport(payload);
   if (type === "subcategory-bulk") return runSubcategoryBulkExport(payload);
+  if (type === "subcategory-data") return runSubcategoryDataExport(payload);
   if (type === "brand") return runBrandExport(payload);
   throw new Error(`Unknown export type: ${type}`);
 }
