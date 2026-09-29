@@ -432,10 +432,23 @@ export async function runBrandExport(b: Record<string, unknown>): Promise<Export
 const SD_MAX_BRANDS = 150;
 const SD_BRAND_PAGE = 100;
 
+interface SubcategoryRef {
+  id: number | string;
+  path?: string;
+  name?: string;
+}
+
 export async function runSubcategoryDataExport(b: Record<string, unknown>): Promise<ExportResult> {
-  if (b.subcategoryId === undefined || b.subcategoryId === null || b.subcategoryId === "") {
-    throw new Error("subcategoryId is required");
-  }
+  // Accept one subcategory (subcategoryId) or many (subcategories: [{id,path,name}]).
+  const subs: SubcategoryRef[] = Array.isArray(b.subcategories)
+    ? (b.subcategories as Array<Record<string, unknown>>)
+        .map((s) => ({ id: (s.id ?? s.subcategoryId) as number | string, path: s.path as string, name: s.name as string }))
+        .filter((s) => s.id !== undefined && s.id !== null && s.id !== "")
+    : b.subcategoryId !== undefined && b.subcategoryId !== null && b.subcategoryId !== ""
+      ? [{ id: b.subcategoryId as number | string, path: b.subcategoryPath as string }]
+      : [];
+  if (subs.length === 0) throw new Error("Select at least one subcategory.");
+
   const sections: Sections = (b.sections as Sections) ?? {};
   if (!sections.overview && !sections.products && !sections.sellers && !sections.searchTerms && !sections.marketplaces) {
     throw new Error("Select at least one section to include.");
@@ -443,37 +456,55 @@ export async function runSubcategoryDataExport(b: Record<string, unknown>): Prom
   const marketplace = parseMarketplace(b.marketplace as string) ?? "US";
   const catName = await categoryNamer(marketplace);
 
-  // Gather the subcategory's brands (respecting the same numeric filters), capped.
-  const list: { brandId: number; brandName: string }[] = [];
-  let page = 1;
-  let total = Infinity;
-  while (list.length < SD_MAX_BRANDS && (page - 1) * SD_BRAND_PAGE < total) {
-    const res = mapSubcategoryBrands(
-      await searchSubcategoryBrands({
-        subcategoryId: b.subcategoryId as string | number,
-        minRevenue: num(b.minRevenue as string),
-        maxRevenue: num(b.maxRevenue as string),
-        minAvgSellers: num(b.minAvgSellers as string),
-        maxAvgSellers: num(b.maxAvgSellers as string),
-        sortBy: (b.sortBy as string) || "revenue",
-        sortDir: (b.sortDir as SortDir) || "desc",
-        page,
-        pageSize: SD_BRAND_PAGE,
-        marketplace,
-      }),
-    ) as SubcategoryBrandsResponse;
-    total = res.totalRowCount ?? res.returned;
-    for (const r of res.brands) list.push({ brandId: r.brandId, brandName: r.brandName });
-    if (res.returned < SD_BRAND_PAGE) break;
-    page += 1;
+  const minRevenue = num(b.minRevenue as string);
+  const maxRevenue = num(b.maxRevenue as string);
+  const minAvgSellers = num(b.minAvgSellers as string);
+  const maxAvgSellers = num(b.maxAvgSellers as string);
+
+  // Gather brands across every selected subcategory (same filters), de-duped by
+  // brandId, capped in total. A brand carried by several niches appears once.
+  const byId = new Map<number, { brandId: number; brandName: string }>();
+  for (const sc of subs) {
+    let page = 1;
+    let total = Infinity;
+    while (byId.size < SD_MAX_BRANDS && (page - 1) * SD_BRAND_PAGE < total) {
+      const res = mapSubcategoryBrands(
+        await searchSubcategoryBrands({
+          subcategoryId: sc.id,
+          minRevenue,
+          maxRevenue,
+          minAvgSellers,
+          maxAvgSellers,
+          sortBy: (b.sortBy as string) || "revenue",
+          sortDir: (b.sortDir as SortDir) || "desc",
+          page,
+          pageSize: SD_BRAND_PAGE,
+          marketplace,
+        }),
+      ) as SubcategoryBrandsResponse;
+      total = res.totalRowCount ?? res.returned;
+      for (const r of res.brands) {
+        if (!byId.has(r.brandId)) byId.set(r.brandId, { brandId: r.brandId, brandName: r.brandName });
+        if (byId.size >= SD_MAX_BRANDS) break;
+      }
+      if (res.returned < SD_BRAND_PAGE) break;
+      page += 1;
+    }
+    if (byId.size >= SD_MAX_BRANDS) break;
   }
-  if (list.length === 0) throw new Error("No brands for this subcategory / filters.");
-  const refs = list.slice(0, SD_MAX_BRANDS);
+  const refs = [...byId.values()].slice(0, SD_MAX_BRANDS);
+  if (refs.length === 0) throw new Error("No brands for the selected subcategories / filters.");
 
   const entries = await buildBrandEntries(refs, sections, marketplace);
   const buffer = await buildBrandWorkbook({ marketplace, entries, sections: sectionsFlags(sections), catName });
-  const leaf = ((b.subcategoryPath as string) || String(b.subcategoryId)).split(">").pop()?.trim() || "subcategory";
-  return { buffer, filename: safeName(`${marketplace}_${leaf}_data_report`) + ".xlsx" };
+
+  let base: string;
+  if (subs.length === 1) {
+    base = (subs[0].name || (subs[0].path || String(subs[0].id)).split(">").pop() || "subcategory").toString().trim();
+  } else {
+    base = `${subs.length}_subcategories`;
+  }
+  return { buffer, filename: safeName(`${marketplace}_${base}_data_report`) + ".xlsx" };
 }
 
 export type ExportType = "seller-map" | "subcategory" | "subcategory-bulk" | "subcategory-data" | "brand";

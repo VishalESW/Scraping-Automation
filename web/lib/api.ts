@@ -248,9 +248,18 @@ export function exportSubcategoryBulkXlsx(input: ExportSubcategoryBulkInput): Pr
   return runExportJob("subcategory-bulk", input, "subcategory_bulk_brands.xlsx");
 }
 
+export interface SubcategoryRefInput {
+  id: string | number;
+  name?: string;
+  path?: string;
+}
+
 export interface ExportSubcategoryDataInput {
-  subcategoryId: string | number;
+  /** One subcategory… */
+  subcategoryId?: string | number;
   subcategoryPath?: string;
+  /** …or many (multi-niche export). */
+  subcategories?: SubcategoryRefInput[];
   minRevenue?: number;
   maxRevenue?: number;
   minAvgSellers?: number;
@@ -259,7 +268,7 @@ export interface ExportSubcategoryDataInput {
   marketplace?: Marketplace;
 }
 
-// Brand-tab-style multi-section report for every brand in a subcategory.
+// Brand-tab-style multi-section report for every brand in one or more subcategories.
 export function exportSubcategoryDataXlsx(input: ExportSubcategoryDataInput): Promise<void> {
   return runExportJob("subcategory-data", input, "subcategory_data_report.xlsx");
 }

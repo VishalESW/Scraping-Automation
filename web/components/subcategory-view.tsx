@@ -20,6 +20,7 @@ import { useApp } from "./app-context";
 import { DataTable, type Column } from "./data-table";
 import { BrandDetailDrawer } from "./brand-detail-drawer";
 import { SubcategoryCombobox, type SubcategorySelection } from "./subcategory-combobox";
+import { SubcategoryMultiView } from "./subcategory-multi-view";
 
 const PAGE_SIZE = 50;
 
@@ -50,6 +51,7 @@ function n(v: string): number | undefined {
 
 export function SubcategoryView() {
   const { marketplace, reportError } = useApp();
+  const [mode, setMode] = useState<"single" | "multi">("single");
   const [sub, setSub] = useState<SubcategorySelection | null>(null);
   const [form, setForm] = useState({
     minRevenue: "",
@@ -267,6 +269,25 @@ export function SubcategoryView() {
 
   return (
     <div className="space-y-4">
+      <div className="flex w-fit gap-1 rounded-md border border-line p-0.5 text-sm">
+        <button
+          className={`rounded px-3 py-1 ${mode === "single" ? "bg-brand text-white" : "text-muted hover:text-ink"}`}
+          onClick={() => setMode("single")}
+        >
+          Single / branch
+        </button>
+        <button
+          className={`rounded px-3 py-1 ${mode === "multi" ? "bg-brand text-white" : "text-muted hover:text-ink"}`}
+          onClick={() => setMode("multi")}
+        >
+          Multiple niches
+        </button>
+      </div>
+
+      {mode === "multi" ? (
+        <SubcategoryMultiView />
+      ) : (
+        <>
       <form onSubmit={submit} className="card p-4">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
           <div className="col-span-2 md:col-span-3">
@@ -526,6 +547,8 @@ export function SubcategoryView() {
           brandName={selected.name}
           onClose={() => setSelected(null)}
         />
+      )}
+        </>
       )}
     </div>
   );
